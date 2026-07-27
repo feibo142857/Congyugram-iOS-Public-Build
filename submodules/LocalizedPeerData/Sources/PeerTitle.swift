@@ -8,6 +8,9 @@ public extension EnginePeer {
     var compactDisplayTitle: String {
         switch self {
         case let .user(user):
+            if let localName = CongyugramModSettings.shared.effectiveProfileValue(peerId: user.id.toInt64(), field: .name) {
+                return localName
+            }
             if let firstName = user.firstName, !firstName.isEmpty {
                 return firstName
             } else if let lastName = user.lastName, !lastName.isEmpty {
@@ -33,6 +36,9 @@ public extension EnginePeer {
         case let .user(user):
             if user.id.isReplies {
                 return strings.DialogList_Replies
+            }
+            if let localName = CongyugramModSettings.shared.effectiveProfileValue(peerId: user.id.toInt64(), field: .name) {
+                return localName
             }
             if let firstName = user.firstName, !firstName.isEmpty {
                 if let lastName = user.lastName, !lastName.isEmpty {

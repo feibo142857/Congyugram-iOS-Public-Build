@@ -277,6 +277,26 @@ public final class AccountContextImpl: AccountContext {
         self.sharedContextImpl = sharedContext
         self.account = account
         self.engine = TelegramEngine(account: account)
+        CongyugramModSettings.shared.registerAccount(peerId: account.peerId.toInt64())
+        let congyugramOriginalPinnedDialogIds = CongyugramModSettings.shared.originalPinnedDialogIds(peerId: account.peerId.toInt64())
+        let congyugramPinnedDialogIds: [Int64]?
+        if CongyugramModSettings.shared.localPremiumEnabled {
+            if congyugramOriginalPinnedDialogIds != nil {
+                congyugramPinnedDialogIds = CongyugramModSettings.shared.extraPinnedDialogIds(peerId: account.peerId.toInt64())
+            } else {
+                congyugramPinnedDialogIds = nil
+            }
+        } else {
+            congyugramPinnedDialogIds = congyugramOriginalPinnedDialogIds
+        }
+        if let congyugramPinnedDialogIds {
+            let _ = (account.postbox.transaction { transaction in
+                transaction.setPinnedItemIds(
+                    groupId: .root,
+                    itemIds: congyugramPinnedDialogIds.map { .peer(PeerId($0)) }
+                )
+            }).startStandalone()
+        }
         
         self.imageCache = DirectMediaImageCache(account: account)
         
@@ -437,8 +457,27 @@ public final class AccountContextImpl: AccountContext {
             strongSelf.animatedEmojiStickersPromise.set(.single(stickers))
         })
         
-        self.userLimitsConfigurationDisposable = (self.engine.data.subscribe(TelegramEngine.EngineData.Item.Peer.Peer(id: account.peerId))
-        |> mapToSignal { peer -> Signal<(Bool, EngineConfiguration.UserLimits), NoError> in
+        self.userLimitsConfigurationDisposable = (combineLatest(
+            self.engine.data.subscribe(TelegramEngine.EngineData.Item.Peer.Peer(id: account.peerId)),
+            CongyugramModSettings.shared.revision
+        )
+        |> mapToSignal { peer, _ -> Signal<(Bool, EngineConfiguration.UserLimits), NoError> in
+            let originalPinnedDialogIds = CongyugramModSettings.shared.originalPinnedDialogIds(peerId: account.peerId.toInt64())
+            let pinnedDialogIds: [Int64]?
+            if CongyugramModSettings.shared.localPremiumEnabled {
+                if originalPinnedDialogIds != nil {
+                    pinnedDialogIds = CongyugramModSettings.shared.extraPinnedDialogIds(peerId: account.peerId.toInt64())
+                } else {
+                    pinnedDialogIds = nil
+                }
+            } else {
+                pinnedDialogIds = originalPinnedDialogIds
+            }
+            if let pinnedDialogIds {
+                let _ = (account.postbox.transaction { transaction in
+                    transaction.setPinnedItemIds(groupId: .root, itemIds: pinnedDialogIds.map { .peer(PeerId($0)) })
+                }).startStandalone()
+            }
             let isPremium = peer?.isPremium ?? false
             return self.engine.data.subscribe(TelegramEngine.EngineData.Item.Configuration.UserLimits(isPremium: isPremium))
             |> map { userLimits in

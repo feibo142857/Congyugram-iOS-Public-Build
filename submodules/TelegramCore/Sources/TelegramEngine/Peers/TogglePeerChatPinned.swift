@@ -22,6 +22,7 @@ func _internal_toggleItemPinned(postbox: Postbox, accountPeerId: PeerId, locatio
         switch location {
         case let .group(groupId):
             var itemIds = transaction.getPinnedItemIds(groupId: groupId)
+            let previousItemIds = itemIds
             if itemIds.firstIndex(of: itemId) == nil {
                 switch itemId {
                 case let .peer(peerId):
@@ -65,7 +66,30 @@ func _internal_toggleItemPinned(postbox: Postbox, accountPeerId: PeerId, locatio
                 } else {
                     itemIds.insert(itemId, at: 0)
                 }
-                addSynchronizePinnedChatsOperation(transaction: transaction, groupId: groupId)
+                let isLocalPremiumRoot: Bool
+                if case .root = groupId {
+                    isLocalPremiumRoot = CongyugramModSettings.shared.isLocalPremiumPeer(peerId: accountPeerId.toInt64())
+                } else {
+                    isLocalPremiumRoot = false
+                }
+                if isLocalPremiumRoot {
+                    let originalPeerIds = previousItemIds.map { item -> Int64 in
+                        switch item {
+                        case let .peer(peerId):
+                            return peerId.toInt64()
+                        }
+                    }
+                    CongyugramModSettings.shared.captureOriginalPinnedDialogIds(peerId: accountPeerId.toInt64(), ids: originalPeerIds)
+                    let peerIds = itemIds.map { item -> Int64 in
+                        switch item {
+                        case let .peer(peerId):
+                            return peerId.toInt64()
+                        }
+                    }
+                    CongyugramModSettings.shared.setExtraPinnedDialogIds(peerId: accountPeerId.toInt64(), ids: peerIds)
+                } else {
+                    addSynchronizePinnedChatsOperation(transaction: transaction, groupId: groupId)
+                }
                 transaction.setPinnedItemIds(groupId: groupId, itemIds: itemIds)
                 return .done
             }

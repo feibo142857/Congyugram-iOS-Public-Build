@@ -57,6 +57,26 @@ public enum UpdateNameColorAndEmojiError {
 }
 
 func _internal_updateNameColorAndEmoji(account: Account, nameColor: UpdateNameColor, profileColor: PeerNameColor?, profileBackgroundEmojiId: Int64?) -> Signal<Void, UpdateNameColorAndEmojiError> {
+    let localNameColor: PeerColor
+    let localBackgroundEmojiId: Int64?
+    switch nameColor {
+    case let .preset(color, backgroundEmojiId):
+        localNameColor = .preset(color)
+        localBackgroundEmojiId = backgroundEmojiId
+    case let .collectible(collectibleColor):
+        localNameColor = .collectible(collectibleColor)
+        localBackgroundEmojiId = collectibleColor.backgroundEmojiId
+    }
+    let useLocalColors = CongyugramModSettings.shared.isLocalPremiumPeer(peerId: account.peerId.toInt64())
+    if useLocalColors {
+        CongyugramModSettings.shared.setLocalColors(
+            peerId: account.peerId.toInt64(),
+            nameColor: localNameColor,
+            backgroundEmojiId: localBackgroundEmojiId,
+            profileColor: profileColor,
+            profileBackgroundEmojiId: profileBackgroundEmojiId
+        )
+    }
     return account.postbox.transaction { transaction -> Signal<Peer, NoError> in
         guard let peer = transaction.getPeer(account.peerId) as? TelegramUser else {
             return .complete()
@@ -80,6 +100,9 @@ func _internal_updateNameColorAndEmoji(account: Account, nameColor: UpdateNameCo
     |> switchToLatest
     |> castError(UpdateNameColorAndEmojiError.self)
     |> mapToSignal { _ -> Signal<Void, UpdateNameColorAndEmojiError> in
+        if useLocalColors {
+            return .single(())
+        }
         let inputRepliesColor: Api.PeerColor
         switch nameColor {
         case let .preset(color, backgroundEmojiId):

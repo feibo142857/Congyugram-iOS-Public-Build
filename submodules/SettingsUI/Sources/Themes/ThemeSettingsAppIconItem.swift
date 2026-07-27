@@ -402,6 +402,16 @@ class ThemeSettingsAppIconItemNode: ListViewItemNode, ItemListItemNode {
                                     name = item.strings.Appearance_AppIconBlack
                                 case "PremiumTurbo":
                                     name = item.strings.Appearance_AppIconTurbo
+                                case "CongyuDefault":
+                                    name = "默认"
+                                case "CongyuVintage":
+                                    name = "老派"
+                                case "CongyuNeon":
+                                    name = "霓虹"
+                                case "CongyuPurpleCat":
+                                    name = "紫云猫"
+                                case "CongyuCottonCat":
+                                    name = "棉吉猫"
                                 default:
                                     name = icon.name
                             }

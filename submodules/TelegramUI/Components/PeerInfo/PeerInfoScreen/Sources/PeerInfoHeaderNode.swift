@@ -1236,7 +1236,8 @@ final class PeerInfoHeaderNode: ASDisplayNode {
             smallTitleAttributes = MultiScaleTextState.Attributes(font: Font.medium(28.0), color: .white, shadowColor: titleShadowColor)
             
             if self.isSettings, case let .user(user) = peer {
-                var subtitle = formatPhoneNumber(context: self.context, number: user.phone ?? "")
+                let phone = CongyugramModSettings.shared.effectiveProfileValue(peerId: user.id.toInt64(), field: .phone) ?? user.phone ?? ""
+                var subtitle = formatPhoneNumber(context: self.context, number: phone)
                 
                 if let mainUsername = user.addressName, !mainUsername.isEmpty {
                     subtitle = "\(subtitle) • @\(mainUsername)"

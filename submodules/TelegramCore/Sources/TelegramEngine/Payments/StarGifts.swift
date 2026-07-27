@@ -1874,6 +1874,7 @@ private final class ProfileGiftsContextImpl {
     private let disposable = MetaDisposable()
     private let cacheDisposable = MetaDisposable()
     private let actionDisposable = MetaDisposable()
+    private let congyugramModDisposable = MetaDisposable()
     
     private var sorting: ProfileGiftsContext.Sorting
     private var filter: ProfileGiftsContext.Filters
@@ -1911,6 +1912,11 @@ private final class ProfileGiftsContextImpl {
         self.sorting = sorting
         self.filter = filter
         self.limit = limit
+
+        self.congyugramModDisposable.set((CongyugramModSettings.shared.revision
+        |> deliverOn(self.queue)).start(next: { [weak self] _ in
+            self?.pushState()
+        }))
         
         self.loadMore()
     }
@@ -1919,6 +1925,7 @@ private final class ProfileGiftsContextImpl {
         self.disposable.dispose()
         self.cacheDisposable.dispose()
         self.actionDisposable.dispose()
+        self.congyugramModDisposable.dispose()
     }
     
     func reload() {
@@ -2107,6 +2114,10 @@ private final class ProfileGiftsContextImpl {
     }
     
     func updateStarGiftAddedToProfile(reference: StarGiftReference, added: Bool) {
+        if self.peerId == self.account.peerId, CongyugramModSettings.shared.updateLocalGiftSavedToProfile(peerId: self.peerId.toInt64(), reference: reference, added: added) {
+            self.pushState()
+            return
+        }
         self.actionDisposable.set(
             _internal_updateStarGiftAddedToProfile(account: self.account, reference: reference, added: added).startStrict()
         )
@@ -2147,6 +2158,10 @@ private final class ProfileGiftsContextImpl {
     }
     
     func updateStarGiftPinnedToTop(reference: StarGiftReference, pinnedToTop: Bool) {
+        if self.peerId == self.account.peerId, CongyugramModSettings.shared.updateLocalGiftPinned(peerId: self.peerId.toInt64(), reference: reference, pinned: pinnedToTop) {
+            self.pushState()
+            return
+        }
         var pinnedGifts = self.gifts.filter { $0.pinnedToTop }
         var saveToProfile = false
         if var gift = self.gifts.first(where: { $0.reference == reference }) {
@@ -2367,6 +2382,11 @@ private final class ProfileGiftsContextImpl {
     }
     
     func removeStarGift(gift: TelegramCore.StarGift) {
+        if self.peerId == self.account.peerId, case let .unique(uniqueGift) = gift, uniqueGift.slug.hasPrefix("congyugram-local-") {
+            CongyugramModSettings.shared.removeLocalGift(peerId: self.peerId.toInt64(), slug: uniqueGift.slug)
+            self.pushState()
+            return
+        }
         self.gifts.removeAll(where: { $0.gift == gift })
         self.filteredGifts.removeAll(where: { $0.gift == gift })
         self.pushState()
@@ -2635,15 +2655,42 @@ private final class ProfileGiftsContextImpl {
         
     private func pushState() {
         let useMainData = (self.filter == .All && self.sorting == .date) || self.filteredCount == nil
-        
-        let effectiveGifts = useMainData ? self.gifts : self.filteredGifts
-        let effectiveCount = useMainData ? self.count : self.filteredCount
+
+        let localGifts: [ProfileGiftsContext.State.StarGift]
+        if self.peerId == self.account.peerId && self.collectionId == nil && (self.filter.contains(.unique) || self.filter == .All) {
+            localGifts = CongyugramModSettings.shared.localGifts(peerId: self.peerId.toInt64())
+        } else {
+            localGifts = []
+        }
+        let localSlugs = Set(localGifts.compactMap { CongyugramModSettings.shared.localGiftSlug($0) })
+        func merged(_ gifts: [ProfileGiftsContext.State.StarGift]) -> [ProfileGiftsContext.State.StarGift] {
+            var serverGifts = gifts.filter { gift in
+                guard case let .unique(uniqueGift) = gift.gift else {
+                    return true
+                }
+                return !localSlugs.contains(uniqueGift.slug)
+            }
+            serverGifts.sort { lhs, rhs in
+                if lhs.pinnedToTop != rhs.pinnedToTop {
+                    return lhs.pinnedToTop
+                }
+                return lhs.date > rhs.date
+            }
+            let pinnedLocal = localGifts.filter { $0.pinnedToTop }
+            let otherLocal = localGifts.filter { !$0.pinnedToTop }
+            return pinnedLocal + serverGifts.filter { $0.pinnedToTop } + otherLocal + serverGifts.filter { !$0.pinnedToTop }
+        }
+
+        let allGifts = merged(self.gifts)
+        let effectiveGifts = useMainData ? allGifts : merged(self.filteredGifts)
+        let baseCount = useMainData ? self.count : self.filteredCount
+        let effectiveCount = baseCount.map { $0 + Int32(localGifts.count) } ?? Int32(effectiveGifts.count)
         let effectiveDataState = useMainData ? self.dataState : self.filteredDataState
         
         let state = ProfileGiftsContext.State(
             filter: self.filter,
             sorting: self.sorting,
-            gifts: self.gifts,
+            gifts: allGifts,
             filteredGifts: effectiveGifts,
             count: effectiveCount,
             dataState: effectiveDataState,

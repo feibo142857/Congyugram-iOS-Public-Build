@@ -79,6 +79,11 @@ func infoItems(
     }
     
     if case let .user(user) = data.peer {
+        let localPeerId = user.id.toInt64()
+        let localPhone = CongyugramModSettings.shared.effectiveProfileValue(peerId: localPeerId, field: .phone)
+        let localUsername = CongyugramModSettings.shared.effectiveUsername(peerId: localPeerId)
+        let localBirthday = CongyugramModSettings.shared.effectiveProfileValue(peerId: localPeerId, field: .birthday)
+        let localAbout = CongyugramModSettings.shared.effectiveProfileValue(peerId: localPeerId, field: .bio)
         let ItemCallList = 1000
         let ItemPersonalChannelHeader = 2000
         let ItemPersonalChannel = 2001
@@ -155,7 +160,7 @@ func infoItems(
             ))
         }
         
-        if let phone = user.phone {
+        if let phone = localPhone ?? user.phone {
             let formattedPhone = formatPhoneNumber(context: context, number: phone)
             let label: String
             if formattedPhone.hasPrefix("+888 ") {
@@ -171,11 +176,12 @@ func infoItems(
                 interaction.requestLayout(animated)
             }))
         }
-        if let mainUsername = user.addressName {
+        if let mainUsername = localUsername ?? user.addressName {
             var additionalUsernames: String?
-            let usernames = user.usernames.filter { $0.isActive && $0.username != mainUsername }
+            var usernames = user.usernames.filter { $0.isActive && $0.username != mainUsername }.map { $0.username }
+            usernames.append(contentsOf: CongyugramModSettings.shared.usernames(peerId: localPeerId).filter { $0.active && $0.username != mainUsername }.map { $0.username })
             if !usernames.isEmpty {
-                additionalUsernames = presentationData.strings.Profile_AdditionalUsernames(String(usernames.map { "@\($0.username)" }.joined(separator: ", "))).string
+                additionalUsernames = presentationData.strings.Profile_AdditionalUsernames(String(usernames.map { "@\($0)" }.joined(separator: ", "))).string
             }
             
             items[currentPeerInfoSection]!.append(
@@ -206,7 +212,17 @@ func infoItems(
         }
         
         if let cachedData = data.cachedData as? CachedUserData {
-            if let birthday = cachedData.birthday {
+            if let localBirthday {
+                items[currentPeerInfoSection]!.append(PeerInfoScreenLabeledValueItem(
+                    id: ItemBirthdate,
+                    context: context,
+                    label: presentationData.strings.UserInfo_Birthday,
+                    text: localBirthday,
+                    textColor: .primary,
+                    action: nil,
+                    requestLayout: { _ in }
+                ))
+            } else if let birthday = cachedData.birthday {
                 let isBirthdayToday = hasBirthdayToday(birthday: birthday)
                 
                 var birthdayAction: ((ASDisplayNode, Promise<Bool>?) -> Void)?
@@ -227,7 +243,7 @@ func infoItems(
             }
             
             var hasAbout = false
-            if let about = cachedData.about, !about.isEmpty {
+            if let about = localAbout ?? cachedData.about, !about.isEmpty {
                 hasAbout = true
             }
             var hasNote = false
@@ -285,10 +301,10 @@ func infoItems(
                 
                 if hasAbout || hasWebApp {
                     var label: String = ""
-                    if let about = cachedData.about, !about.isEmpty {
+                    if let about = localAbout ?? cachedData.about, !about.isEmpty {
                         label = user.botInfo == nil ? presentationData.strings.Profile_About : presentationData.strings.Profile_BotInfo
                     }
-                    items[currentPeerInfoSection]!.append(PeerInfoScreenLabeledValueItem(id: ItemAbout, label: label, text: cachedData.about ?? "", textColor: .primary, textBehavior: .multiLine(maxLines: 100, enabledEntities: user.isPremium ? enabledPublicBioEntities : enabledPrivateBioEntities), action: isMyProfile ? { node, _ in
+                    items[currentPeerInfoSection]!.append(PeerInfoScreenLabeledValueItem(id: ItemAbout, label: label, text: localAbout ?? cachedData.about ?? "", textColor: .primary, textBehavior: .multiLine(maxLines: 100, enabledEntities: user.isPremium ? enabledPublicBioEntities : enabledPrivateBioEntities), action: isMyProfile ? { node, _ in
                         bioContextAction(node, nil, nil)
                     } : nil, linkItemAction: bioLinkAction, button: actionButton, contextAction: bioContextAction, requestLayout: { animated in
                         interaction.requestLayout(animated)

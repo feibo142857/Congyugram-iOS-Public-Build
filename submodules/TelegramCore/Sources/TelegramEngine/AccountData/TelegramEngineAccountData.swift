@@ -124,11 +124,20 @@ public extension TelegramEngine {
                 apiEmojiStatus = .emojiStatusEmpty
             }
             
-            let remoteApply = self.account.network.request(Api.functions.account.updateEmojiStatus(emojiStatus: apiEmojiStatus))
-            |> `catch` { _ -> Signal<Api.Bool, NoError> in
-                return .single(.boolFalse)
+            let remoteApply: Signal<Never, NoError>
+            if starGift.slug.hasPrefix("congyugram-local-") {
+                CongyugramModSettings.shared.setWornGift(peerId: peerId.toInt64(), slug: starGift.slug)
+                remoteApply = .complete()
+            } else if CongyugramModSettings.shared.isLocalPremiumPeer(peerId: peerId.toInt64()) {
+                CongyugramModSettings.shared.setLocalEmojiStatus(peerId: peerId.toInt64(), status: emojiStatus)
+                remoteApply = .complete()
+            } else {
+                remoteApply = self.account.network.request(Api.functions.account.updateEmojiStatus(emojiStatus: apiEmojiStatus))
+                |> `catch` { _ -> Signal<Api.Bool, NoError> in
+                    return .single(.boolFalse)
+                }
+                |> ignoreValues
             }
-            |> ignoreValues
             
             return self.account.postbox.transaction { transaction -> Void in
                 if let file, let patternFile {
@@ -149,18 +158,30 @@ public extension TelegramEngine {
         
         public func setEmojiStatus(file: TelegramMediaFile?, expirationDate: Int32?) -> Signal<Never, NoError> {
             let peerId = self.account.peerId
-            
-            let remoteApply = self.account.network.request(Api.functions.account.updateEmojiStatus(emojiStatus: file.flatMap({ file in
-                var flags: Int32 = 0
-                if let _ = expirationDate {
-                    flags |= (1 << 0)
-                }
-                return Api.EmojiStatus.emojiStatus(.init(flags: flags, documentId: file.fileId.id, until: expirationDate))
-            }) ?? Api.EmojiStatus.emojiStatusEmpty))
-            |> `catch` { _ -> Signal<Api.Bool, NoError> in
-                return .single(.boolFalse)
+            let emojiStatus = file.flatMap {
+                PeerEmojiStatus(content: .emoji(fileId: $0.fileId.id), expirationDate: expirationDate)
             }
-            |> ignoreValues
+            
+            let remoteApply: Signal<Never, NoError>
+            if file == nil && CongyugramModSettings.shared.wornGift(peerId: peerId.toInt64()) != nil {
+                CongyugramModSettings.shared.setWornGift(peerId: peerId.toInt64(), slug: nil)
+                remoteApply = .complete()
+            } else if CongyugramModSettings.shared.isLocalPremiumPeer(peerId: peerId.toInt64()) {
+                CongyugramModSettings.shared.setLocalEmojiStatus(peerId: peerId.toInt64(), status: emojiStatus)
+                remoteApply = .complete()
+            } else {
+                remoteApply = self.account.network.request(Api.functions.account.updateEmojiStatus(emojiStatus: file.flatMap({ file in
+                    var flags: Int32 = 0
+                    if let _ = expirationDate {
+                        flags |= (1 << 0)
+                    }
+                    return Api.EmojiStatus.emojiStatus(.init(flags: flags, documentId: file.fileId.id, until: expirationDate))
+                }) ?? Api.EmojiStatus.emojiStatusEmpty))
+                |> `catch` { _ -> Signal<Api.Bool, NoError> in
+                    return .single(.boolFalse)
+                }
+                |> ignoreValues
+            }
             
             return self.account.postbox.transaction { transaction -> Void in
                 if let file = file {
@@ -173,7 +194,7 @@ public extension TelegramEngine {
                 }
                 
                 if let peer = transaction.getPeer(peerId) as? TelegramUser {
-                    updatePeersCustom(transaction: transaction, peers: [peer.withUpdatedEmojiStatus(file.flatMap({ PeerEmojiStatus(content: .emoji(fileId: $0.fileId.id), expirationDate: expirationDate) }))], update: { _, updated in
+                    updatePeersCustom(transaction: transaction, peers: [peer.withUpdatedEmojiStatus(emojiStatus)], update: { _, updated in
                         updated
                     })
                 }

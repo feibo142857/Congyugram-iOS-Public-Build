@@ -177,6 +177,9 @@ public final class TelegramUser: Peer, Equatable {
     public let linkedCommunityId: PeerId?
 
     public var nameOrPhone: String {
+        if let localName = CongyugramModSettings.shared.effectiveProfileValue(peerId: self.id.toInt64(), field: .name) {
+            return localName
+        }
         if let firstName = self.firstName {
             if let lastName = self.lastName {
                 return "\(firstName) \(lastName)"
@@ -185,7 +188,7 @@ public final class TelegramUser: Peer, Equatable {
             }
         } else if let lastName = self.lastName {
             return lastName
-        } else if let phone = self.phone, !phone.isEmpty {
+        } else if let phone = CongyugramModSettings.shared.effectiveProfileValue(peerId: self.id.toInt64(), field: .phone) ?? self.phone, !phone.isEmpty {
             return phone
         } else {
             return ""
@@ -193,11 +196,14 @@ public final class TelegramUser: Peer, Equatable {
     }
     
     public var shortNameOrPhone: String {
+        if let localName = CongyugramModSettings.shared.effectiveProfileValue(peerId: self.id.toInt64(), field: .name) {
+            return localName
+        }
         if let firstName = self.firstName {
             return firstName
         } else if let lastName = self.lastName {
             return lastName
-        } else if let phone = self.phone, !phone.isEmpty {
+        } else if let phone = CongyugramModSettings.shared.effectiveProfileValue(peerId: self.id.toInt64(), field: .phone) ?? self.phone, !phone.isEmpty {
             return phone
         } else {
             return ""

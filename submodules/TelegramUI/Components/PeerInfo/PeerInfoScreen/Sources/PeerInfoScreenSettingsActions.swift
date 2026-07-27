@@ -145,6 +145,8 @@ extension PeerInfoScreenNode {
             push(themeSettingsController(context: self.context))
         case .language:
             push(LocalizationListController(context: self.context))
+        case .congyugramMod:
+            push(congyugramModController(context: self.context))
         case .premium:
             let controller = self.context.sharedContext.makePremiumIntroController(context: self.context, source: .settings, forceDark: false, dismissed: nil)
             self.controller?.push(controller)
@@ -192,6 +194,8 @@ extension PeerInfoScreenNode {
             self.openFaq()
         case .tips:
             self.openTips()
+        case .congyugramChannel:
+            self.openCongyugramChannel()
         case .phoneNumber:
             guard let controller = self.controller, !controller.presentAccountFrozenInfoIfNeeded() else {
                 return
@@ -347,6 +351,27 @@ extension PeerInfoScreenNode {
         let context = self.context
         let navigationController = self.controller?.navigationController as? NavigationController
         self.tipsPeerDisposable.set((self.context.engine.peers.resolvePeerByName(name: self.presentationData.strings.Settings_TipsUsername, referrer: nil)
+        |> mapToSignal { result -> Signal<EnginePeer?, NoError> in
+            guard case let .result(result) = result else {
+                return .complete()
+            }
+            return .single(result)
+        }
+        |> deliverOnMainQueue).startStrict(next: { [weak controller] peer in
+            controller?.dismiss()
+            if let peer = peer, let navigationController = navigationController {
+                context.sharedContext.navigateToChatController(NavigateToChatControllerParams(navigationController: navigationController, context: context, chatLocation: .peer(peer)))
+            }
+        }))
+    }
+
+    private func openCongyugramChannel() {
+        let controller = OverlayStatusController(theme: self.presentationData.theme, type: .loading(cancelled: nil))
+        self.controller?.present(controller, in: .window(.root))
+
+        let context = self.context
+        let navigationController = self.controller?.navigationController as? NavigationController
+        self.tipsPeerDisposable.set((self.context.engine.peers.resolvePeerByName(name: "congyu", referrer: nil)
         |> mapToSignal { result -> Signal<EnginePeer?, NoError> in
             guard case let .result(result) = result else {
                 return .complete()

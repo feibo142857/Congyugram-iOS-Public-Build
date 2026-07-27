@@ -1540,14 +1540,16 @@ func peerInfoScreenData(
                 premiumGiftOptions,
                 webAppPermissions,
                 savedMusicContext.state,
-                businessConnectedBot
+                businessConnectedBot,
+                CongyugramModSettings.shared.revision
             )
-            |> mapToSignal { peerView, availablePanes, globalNotificationSettings, encryptionKeyFingerprint, status, hasStories, hasStoryArchive, recommendedBots, accountIsPremium, savedMessagesPeer, hasSavedMessagesChats, hasSavedMessages, hasSavedMessageTags, hasBotPreviewItems, personalChannel, privacySettings, starsRevenueContextAndState, revenueContextAndState, premiumGiftOptions, webAppPermissions, savedMusicState, businessConnectedBot -> Signal<PeerInfoScreenData, NoError> in
+            |> mapToSignal { peerView, availablePanes, globalNotificationSettings, encryptionKeyFingerprint, status, hasStories, hasStoryArchive, recommendedBots, accountIsPremium, savedMessagesPeer, hasSavedMessagesChats, hasSavedMessages, hasSavedMessageTags, hasBotPreviewItems, personalChannel, privacySettings, starsRevenueContextAndState, revenueContextAndState, premiumGiftOptions, webAppPermissions, savedMusicState, businessConnectedBot, _ -> Signal<PeerInfoScreenData, NoError> in
                 var availablePanes = availablePanes
                 if isMyProfile {
                     availablePanes?.insert(.stories, at: 0)
                     if availablePanes != nil, profileGiftsContext != nil, let cachedData = peerView.cachedData as? CachedUserData {
-                        if let starGiftsCount = cachedData.starGiftsCount, starGiftsCount > 0 {
+                        let hasLocalGifts = !CongyugramModSettings.shared.localGifts(peerId: context.account.peerId.toInt64()).isEmpty
+                        if (cachedData.starGiftsCount ?? 0) > 0 || hasLocalGifts {
                             availablePanes?.insert(.gifts, at: 1)
                         }
                     }

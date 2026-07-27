@@ -167,6 +167,7 @@ enum PeerInfoSettingsSection {
     case dataAndStorage
     case appearance
     case language
+    case congyugramMod
     case stickers
     case premium
     case premiumGift
@@ -175,6 +176,7 @@ enum PeerInfoSettingsSection {
     case support
     case faq
     case tips
+    case congyugramChannel
     case phoneNumber
     case username
     case addAccount
@@ -2507,8 +2509,9 @@ final class PeerInfoScreenNode: ViewControllerTracingNode, PeerInfoScreenNodePro
             queue: Queue.mainQueue(),
             screenData,
             self.forceIsContactPromise.get(),
-            reactionSourceMessage
-        ).startStrict(next: { [weak self] data, forceIsContact, reactionSourceMessage in
+            reactionSourceMessage,
+            CongyugramModSettings.shared.revision
+        ).startStrict(next: { [weak self] data, forceIsContact, reactionSourceMessage, _ in
             guard let strongSelf = self else {
                 return
             }

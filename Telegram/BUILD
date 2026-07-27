@@ -330,6 +330,11 @@ filegroup(
 )
 
 alternate_icon_folders = [
+    "CongyuDefault",
+    "CongyuVintage",
+    "CongyuNeon",
+    "CongyuPurpleCat",
+    "CongyuCottonCat",
     "BlackIcon",
     "BlackClassicIcon",
     "BlackFilledIcon",

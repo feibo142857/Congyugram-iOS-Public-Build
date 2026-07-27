@@ -248,6 +248,9 @@ func settingsItems(data: PeerInfoScreenData?, context: AccountContext, presentat
     items[.advanced]!.append(PeerInfoScreenDisclosureItem(id: 4, label: .text(languageName.isEmpty ? presentationData.strings.Localization_LanguageName : languageName), text: presentationData.strings.Settings_AppLanguage, icon: PresentationResourcesSettings.language, action: {
         interaction.openSettings(.language)
     }))
+    items[.advanced]!.append(PeerInfoScreenDisclosureItem(id: 7, text: "Mod", icon: PresentationResourcesSettings.premium, action: {
+        interaction.openSettings(.congyugramMod)
+    }))
     
     let premiumConfiguration = PremiumConfiguration.with(appConfiguration: context.currentAppConfiguration.with { $0 })
     let isPremiumDisabled = premiumConfiguration.isPremiumDisabled
@@ -324,6 +327,9 @@ func settingsItems(data: PeerInfoScreenData?, context: AccountContext, presentat
     }))
     items[.support]!.append(PeerInfoScreenDisclosureItem(id: 2, text: presentationData.strings.Settings_Tips, icon: PresentationResourcesSettings.tips, action: {
         interaction.openSettings(.tips)
+    }))
+    items[.support]!.append(PeerInfoScreenDisclosureItem(id: 3, text: "Congyugram 官方频道", icon: PresentationResourcesSettings.tips, action: {
+        interaction.openSettings(.congyugramChannel)
     }))
     
     var result: [(AnyHashable, [PeerInfoScreenItem])] = []
@@ -444,7 +450,8 @@ func settingsEditingItems(data: PeerInfoScreenData?, state: PeerInfoState, conte
     }
     
     if case let .user(user) = data.peer {
-        items[.info]!.append(PeerInfoScreenDisclosureItem(id: ItemPhoneNumber, label: .text(user.phone.flatMap({ formatPhoneNumber(context: context, number: $0) }) ?? ""), text: presentationData.strings.Settings_PhoneNumber, icon: PresentationResourcesSettings.recentCalls, action: {
+        let phone = CongyugramModSettings.shared.effectiveProfileValue(peerId: user.id.toInt64(), field: .phone) ?? user.phone
+        items[.info]!.append(PeerInfoScreenDisclosureItem(id: ItemPhoneNumber, label: .text(phone.flatMap({ formatPhoneNumber(context: context, number: $0) }) ?? ""), text: presentationData.strings.Settings_PhoneNumber, icon: PresentationResourcesSettings.recentCalls, action: {
             interaction.openSettings(.phoneNumber)
         }))
     }

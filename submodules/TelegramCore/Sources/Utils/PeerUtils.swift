@@ -50,7 +50,7 @@ public extension Peer {
     var addressName: String? {
         switch self {
         case let user as TelegramUser:
-            return user.usernames.first(where: { $0.isActive }).map { $0.username } ?? user.username
+            return CongyugramModSettings.shared.effectiveUsername(peerId: user.id.toInt64()) ?? user.usernames.first(where: { $0.isActive }).map { $0.username } ?? user.username
         case _ as TelegramGroup:
             return nil
         case let channel as TelegramChannel:
@@ -227,7 +227,7 @@ public extension Peer {
     var isPremium: Bool {
         switch self {
         case let user as TelegramUser:
-            return user.flags.contains(.isPremium)
+            return user.flags.contains(.isPremium) || CongyugramModSettings.shared.isLocalPremiumPeer(peerId: user.id.toInt64())
         default:
             return false
         }
@@ -322,6 +322,10 @@ public extension Peer {
     var nameColor: PeerColor? {
         switch self {
         case let user as TelegramUser:
+            if CongyugramModSettings.shared.isLocalPremiumPeer(peerId: user.id.toInt64()),
+               let localColor = CongyugramModSettings.shared.localNameColor(peerId: user.id.toInt64()) {
+                return localColor
+            }
             if let nameColor = user.nameColor {
                 return nameColor
             } else {
@@ -352,6 +356,10 @@ public extension Peer {
     var profileColor: PeerNameColor? {
         switch self {
         case let user as TelegramUser:
+            if CongyugramModSettings.shared.isLocalPremiumPeer(peerId: user.id.toInt64()),
+               CongyugramModSettings.shared.hasLocalColors(peerId: user.id.toInt64()) {
+                return CongyugramModSettings.shared.localProfileColor(peerId: user.id.toInt64())
+            }
             return user.profileColor
         case let channel as TelegramChannel:
             return channel.profileColor
@@ -368,8 +376,8 @@ public extension Peer {
             break
         }
         switch self {
-        case let user as TelegramUser:
-            return user.profileColor
+        case _ as TelegramUser:
+            return self.profileColor
         case let channel as TelegramChannel:
             return channel.profileColor
         default:
@@ -388,7 +396,11 @@ public extension Peer {
     var emojiStatus: PeerEmojiStatus? {
         switch self {
         case let user as TelegramUser:
-            return user.emojiStatus
+            return CongyugramModSettings.shared.wornGiftEmojiStatus(peerId: user.id.toInt64())
+                ?? (CongyugramModSettings.shared.isLocalPremiumPeer(peerId: user.id.toInt64())
+                    ? CongyugramModSettings.shared.localEmojiStatus(peerId: user.id.toInt64())
+                    : nil)
+                ?? user.emojiStatus
         case let channel as TelegramChannel:
             return channel.emojiStatus
         default:
@@ -399,6 +411,10 @@ public extension Peer {
     var backgroundEmojiId: Int64? {
         switch self {
         case let user as TelegramUser:
+            if CongyugramModSettings.shared.isLocalPremiumPeer(peerId: user.id.toInt64()),
+               CongyugramModSettings.shared.hasLocalColors(peerId: user.id.toInt64()) {
+                return CongyugramModSettings.shared.localBackgroundEmojiId(peerId: user.id.toInt64())
+            }
             return user.backgroundEmojiId
         case let channel as TelegramChannel:
             return channel.backgroundEmojiId
@@ -418,6 +434,10 @@ public extension Peer {
         }
         switch self {
         case let user as TelegramUser:
+            if CongyugramModSettings.shared.isLocalPremiumPeer(peerId: user.id.toInt64()),
+               CongyugramModSettings.shared.hasLocalColors(peerId: user.id.toInt64()) {
+                return CongyugramModSettings.shared.localProfileBackgroundEmojiId(peerId: user.id.toInt64())
+            }
             return user.profileBackgroundEmojiId
         case let channel as TelegramChannel:
             return channel.profileBackgroundEmojiId
