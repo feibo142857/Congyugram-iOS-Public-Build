@@ -55,6 +55,29 @@ import AppCenterCrashes
 private let handleVoipNotifications = false
 private let isCongyugramSideloadBuild = true
 
+private func congyugramSideloadStorageBaseUrl() -> URL {
+    let fileManager = FileManager.default
+    let candidates: [URL] = [
+        fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0],
+        fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
+    ]
+
+    for candidate in candidates {
+        let rootUrl = candidate.appendingPathComponent("telegram-data", isDirectory: true)
+        let probeUrl = rootUrl.appendingPathComponent(".congyugram-write-test-\(UUID().uuidString)")
+        do {
+            try fileManager.createDirectory(at: rootUrl, withIntermediateDirectories: true, attributes: nil)
+            try Data([0x43, 0x47]).write(to: probeUrl, options: .atomic)
+            try? fileManager.removeItem(at: probeUrl)
+            return candidate
+        } catch {
+            NSLog("Congyugram: storage candidate %@ is not writable: %@", candidate.path, String(describing: error))
+        }
+    }
+
+    return fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
+}
+
 private var testIsLaunched = false
 
 private func isKeyboardWindow(window: NSObject) -> Bool {
@@ -667,9 +690,9 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
             appGroupUrl = maybeAppGroupUrl
             hasAppGroupContainer = true
         } else {
-            appGroupUrl = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].deletingLastPathComponent()
+            appGroupUrl = congyugramSideloadStorageBaseUrl()
             hasAppGroupContainer = false
-            Logger.shared.log("App \(self.episodeId)", "App Group container is unavailable; using the app sandbox container for sideloaded build.")
+            Logger.shared.log("App \(self.episodeId)", "App Group container is unavailable; using writable app storage at \(appGroupUrl.path).")
         }
         
         var isDebugConfiguration = false
@@ -699,6 +722,12 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
         }
         if !isUITest && hasAppGroupContainer {
             performAppGroupUpgrades(appGroupPath: appGroupUrl.path, rootPath: rootPath)
+        } else if !isUITest {
+            do {
+                try FileManager.default.createDirectory(atPath: rootPath, withIntermediateDirectories: true, attributes: nil)
+            } catch {
+                Logger.shared.log("App \(self.episodeId)", "Unable to create sideload storage directory \(rootPath): \(error)")
+            }
         }
         self.sideloadLaunchLabel?.text = "Congyugram 正在启动\n2/4 · 准备本地数据"
         
@@ -732,9 +761,17 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
         }
         
         if !writeAbilityTestSuccess {
-            let alertController = UIAlertController(title: nil, message: "The device does not have sufficient free space.", preferredStyle: .alert)
+            let message: String
+            if isCongyugramSideloadBuild {
+                message = "Congyugram 无法初始化本地数据目录。请彻底关闭应用后重新打开；如果仍然出现，请安装最新构建。"
+            } else {
+                message = "The device does not have sufficient free space."
+            }
+            let alertController = UIAlertController(title: nil, message: message, preferredStyle: .alert)
             alertController.addAction(UIAlertAction(title: "OK", style: .default, handler: { _ in
-                preconditionFailure()
+                if !isCongyugramSideloadBuild {
+                    preconditionFailure()
+                }
             }))
             self.mainWindow?.presentNative(alertController)
             
