@@ -68,15 +68,6 @@ func _internal_updateNameColorAndEmoji(account: Account, nameColor: UpdateNameCo
         localBackgroundEmojiId = collectibleColor.backgroundEmojiId
     }
     let useLocalColors = CongyugramModSettings.shared.isLocalPremiumPeer(peerId: account.peerId.toInt64())
-    if useLocalColors {
-        CongyugramModSettings.shared.setLocalColors(
-            peerId: account.peerId.toInt64(),
-            nameColor: localNameColor,
-            backgroundEmojiId: localBackgroundEmojiId,
-            profileColor: profileColor,
-            profileBackgroundEmojiId: profileBackgroundEmojiId
-        )
-    }
     return account.postbox.transaction { transaction -> Signal<Peer, NoError> in
         guard let peer = transaction.getPeer(account.peerId) as? TelegramUser else {
             return .complete()
@@ -90,6 +81,24 @@ func _internal_updateNameColorAndEmoji(account: Account, nameColor: UpdateNameCo
         case let .collectible(collectibleColor):
             nameColorValue = .collectible(collectibleColor)
             backgroundEmojiIdValue = collectibleColor.backgroundEmojiId
+        }
+
+        if useLocalColors {
+            let backgroundEmojiFile = localBackgroundEmojiId.flatMap {
+                transaction.getMedia(MediaId(namespace: Namespaces.Media.CloudFile, id: $0)) as? TelegramMediaFile
+            }
+            let profileBackgroundEmojiFile = profileBackgroundEmojiId.flatMap {
+                transaction.getMedia(MediaId(namespace: Namespaces.Media.CloudFile, id: $0)) as? TelegramMediaFile
+            }
+            CongyugramModSettings.shared.setLocalColors(
+                peerId: account.peerId.toInt64(),
+                nameColor: localNameColor,
+                backgroundEmojiId: localBackgroundEmojiId,
+                backgroundEmojiFile: backgroundEmojiFile,
+                profileColor: profileColor,
+                profileBackgroundEmojiId: profileBackgroundEmojiId,
+                profileBackgroundEmojiFile: profileBackgroundEmojiFile
+            )
         }
         
         updatePeersCustom(transaction: transaction, peers: [peer.withUpdatedNameColor(nameColorValue).withUpdatedBackgroundEmojiId(backgroundEmojiIdValue).withUpdatedProfileColor(profileColor).withUpdatedProfileBackgroundEmojiId(profileBackgroundEmojiId)], update: { _, updated in

@@ -195,7 +195,9 @@ extension PeerInfoScreenNode {
         case .tips:
             self.openTips()
         case .congyugramChannel:
-            self.openCongyugramChannel()
+            self.openCongyugramPeer(username: "congyu")
+        case .congyugramDeveloper:
+            self.openCongyugramPeer(username: "vipfeibo")
         case .phoneNumber:
             guard let controller = self.controller, !controller.presentAccountFrozenInfoIfNeeded() else {
                 return
@@ -365,13 +367,13 @@ extension PeerInfoScreenNode {
         }))
     }
 
-    private func openCongyugramChannel() {
+    private func openCongyugramPeer(username: String) {
         let controller = OverlayStatusController(theme: self.presentationData.theme, type: .loading(cancelled: nil))
         self.controller?.present(controller, in: .window(.root))
 
         let context = self.context
         let navigationController = self.controller?.navigationController as? NavigationController
-        self.tipsPeerDisposable.set((self.context.engine.peers.resolvePeerByName(name: "congyu", referrer: nil)
+        self.tipsPeerDisposable.set((self.context.engine.peers.resolvePeerByName(name: username, referrer: nil)
         |> mapToSignal { result -> Signal<EnginePeer?, NoError> in
             guard case let .result(result) = result else {
                 return .complete()

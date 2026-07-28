@@ -1589,6 +1589,9 @@ func _internal_dropStarGiftOriginalDetails(account: Account, reference: StarGift
 }
 
 func _internal_transferStarGift(account: Account, prepaid: Bool, reference: StarGiftReference, peerId: EnginePeer.Id) -> Signal<Never, TransferStarGiftError> {
+    if CongyugramModSettings.shared.isLocalGift(reference: reference) {
+        return .complete()
+    }
     return account.postbox.transaction { transaction -> (Api.InputPeer, Api.InputSavedStarGift)? in
         guard let inputPeer = transaction.getPeer(peerId).flatMap(apiInputPeer), let starGift = reference.apiStarGiftReference(transaction: transaction) else {
             return nil
@@ -2322,6 +2325,9 @@ private final class ProfileGiftsContextImpl {
     }
     
     func transferStarGift(prepaid: Bool, reference: StarGiftReference, peerId: EnginePeer.Id) -> Signal<Never, TransferStarGiftError> {
+        if CongyugramModSettings.shared.isLocalGift(reference: reference) {
+            return .complete()
+        }
         if let count = self.count {
             self.count = max(0, count - 1)
         }
@@ -2984,6 +2990,35 @@ public final class ProfileGiftsContext {
                     canCraftAt: self.canCraftAt
                 )
             }
+
+            public func withTransferStars(_ transferStars: Int64?) -> StarGift {
+                return StarGift(
+                    gift: self.gift,
+                    reference: self.reference,
+                    fromPeer: self.fromPeer,
+                    date: self.date,
+                    text: self.text,
+                    entities: self.entities,
+                    nameHidden: self.nameHidden,
+                    savedToProfile: self.savedToProfile,
+                    pinnedToTop: self.pinnedToTop,
+                    convertStars: self.convertStars,
+                    canUpgrade: self.canUpgrade,
+                    canExportDate: self.canExportDate,
+                    upgradeStars: self.upgradeStars,
+                    transferStars: transferStars,
+                    canTransferDate: self.canTransferDate,
+                    canResaleDate: self.canResaleDate,
+                    collectionIds: self.collectionIds,
+                    prepaidUpgradeHash: self.prepaidUpgradeHash,
+                    upgradeSeparate: self.upgradeSeparate,
+                    dropOriginalDetailsStars: self.dropOriginalDetailsStars,
+                    number: self.number,
+                    isRefunded: self.isRefunded,
+                    canCraftAt: self.canCraftAt
+                )
+            }
+
             fileprivate func withFromPeer(_ fromPeer: EnginePeer?) -> StarGift {
                 return StarGift(
                     gift: self.gift,

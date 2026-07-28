@@ -2484,13 +2484,25 @@ final class PeerInfoHeaderNode: ASDisplayNode {
         } else {
             transition.updateFrame(view: self.backgroundBannerView, frame: bannerFrame)
         }
+
+        var backgroundCoverFiles: [Int64: TelegramMediaFile] = [:]
+        if let peer, peer.id == self.context.account.peerId {
+            if case .some(.status(_)) = backgroundCoverSubject,
+               let file = CongyugramModSettings.shared.wornGiftPatternFile(peerId: peer.id.toInt64()) {
+                backgroundCoverFiles[file.fileId.id] = file
+            } else if case .some(.peer(_)) = backgroundCoverSubject,
+                      let file = CongyugramModSettings.shared.localProfileBackgroundEmojiFile(peerId: peer.id.toInt64()),
+                      file.fileId.id == peer.profileBackgroundEmojiId {
+                backgroundCoverFiles[file.fileId.id] = file
+            }
+        }
                         
         let backgroundCoverSize = self.backgroundCover.update(
             transition: ComponentTransition(transition),
             component: AnyComponent(PeerInfoCoverComponent(
                 context: self.context,
                 subject: backgroundCoverSubject,
-                files: [:],
+                files: backgroundCoverFiles,
                 isDark: presentationData.theme.overallDarkAppearance,
                 avatarCenter: apparentAvatarFrame.center.offsetBy(dx: bannerInset, dy: 0.0),
                 avatarSize: apparentAvatarFrame.size,

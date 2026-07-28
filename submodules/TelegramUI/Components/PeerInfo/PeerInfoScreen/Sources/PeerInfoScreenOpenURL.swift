@@ -288,7 +288,21 @@ extension PeerInfoScreenNode {
         if let pathComponents = URL(string: url)?.pathComponents, pathComponents.count >= 2, !pathComponents[1].isEmpty {
             let namePart = pathComponents[1]
             progress?.set(.single(true))
-            let _ = (self.context.sharedContext.makeCollectibleItemInfoScreenInitialData(context: self.context, peerId: self.peerId, subject: .username(namePart))
+            let initialData: Signal<CollectibleItemInfoScreenInitialData?, NoError>
+            let isLocalCollectible: Bool
+            if let info = CongyugramModSettings.shared.localCollectibleUsernameInfo(peerId: self.peerId.toInt64(), username: namePart) {
+                isLocalCollectible = true
+                initialData = self.context.sharedContext.makeLocalCollectibleItemInfoScreenInitialData(
+                    context: self.context,
+                    peerId: self.peerId,
+                    subject: .username(namePart),
+                    info: info
+                )
+            } else {
+                isLocalCollectible = false
+                initialData = self.context.sharedContext.makeCollectibleItemInfoScreenInitialData(context: self.context, peerId: self.peerId, subject: .username(namePart))
+            }
+            let _ = (initialData
             |> deliverOnMainQueue).start(next: { [weak self] initialData in
                 guard let self else {
                     return
@@ -297,7 +311,7 @@ extension PeerInfoScreenNode {
                 progress?.set(.single(false))
                 
                 if let initialData {
-                    if isMainUsername {
+                    if isMainUsername && !isLocalCollectible {
                         openShare(initialData.collectibleItemInfo)
                     } else {
                         self.view.endEditing(true)

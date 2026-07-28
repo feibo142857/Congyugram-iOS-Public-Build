@@ -16,9 +16,20 @@ extension PeerInfoScreenNode {
         }
         
         let formattedPhoneNumber = formatPhoneNumber(context: self.context, number: value)
-        if gesture == nil, formattedPhoneNumber.hasPrefix("+888") {
+        let localCollectibleInfo = CongyugramModSettings.shared.localCollectiblePhoneNumberInfo(peerId: self.peerId.toInt64(), phoneNumber: value)
+        let isCollectiblePhoneNumber = localCollectibleInfo != nil || formattedPhoneNumber.hasPrefix("+888")
+        if gesture == nil, isCollectiblePhoneNumber {
             let collectibleInfo = Promise<CollectibleItemInfoScreenInitialData?>()
-            collectibleInfo.set(self.context.sharedContext.makeCollectibleItemInfoScreenInitialData(context: self.context, peerId: self.peerId, subject: .phoneNumber(value)))
+            if let localCollectibleInfo {
+                collectibleInfo.set(self.context.sharedContext.makeLocalCollectibleItemInfoScreenInitialData(
+                    context: self.context,
+                    peerId: self.peerId,
+                    subject: .phoneNumber(value),
+                    info: localCollectibleInfo
+                ))
+            } else {
+                collectibleInfo.set(self.context.sharedContext.makeCollectibleItemInfoScreenInitialData(context: self.context, peerId: self.peerId, subject: .phoneNumber(value)))
+            }
             
             progress?.set(.single(true))
             let _ = (collectibleInfo.get()
@@ -81,7 +92,7 @@ extension PeerInfoScreenNode {
                 }
             }
             
-            var isAnonymousNumber = false
+            var isAnonymousNumber = isCollectiblePhoneNumber
             var items: [ContextMenuItem] = []
             
             if strongSelf.isMyProfile {
@@ -108,7 +119,7 @@ extension PeerInfoScreenNode {
                         }
                     })))
                 }
-                if !formattedPhoneNumber.hasPrefix("+888") {
+                if !isCollectiblePhoneNumber {
                     if !strongSelf.isMyProfile {
                         items.append(.action(ContextMenuActionItem(text: presentationData.strings.UserInfo_PhoneCall, icon: { theme in generateTintedImage(image: UIImage(bundleImageName: "Chat/Context Menu/PhoneCall"), color: theme.contextMenu.primaryColor) }, action: { c, _ in
                             c?.dismiss {
@@ -125,7 +136,7 @@ extension PeerInfoScreenNode {
                     }
                 })))
             } else {
-                if !formattedPhoneNumber.hasPrefix("+888") {
+                if !isCollectiblePhoneNumber {
                     if !strongSelf.isMyProfile {
                         items.append(
                             .action(ContextMenuActionItem(text: presentationData.strings.UserInfo_PhoneCall, icon: { theme in generateTintedImage(image: UIImage(bundleImageName: "Chat/Context Menu/PhoneCall"), color: theme.contextMenu.primaryColor) }, action: { c, _ in
@@ -149,7 +160,16 @@ extension PeerInfoScreenNode {
             var actions = ContextController.Items(content: .list(items))
             if isAnonymousNumber && !accountIsFromUS {
                 let collectibleInfo = Promise<CollectibleItemInfoScreenInitialData?>()
-                collectibleInfo.set(strongSelf.context.sharedContext.makeCollectibleItemInfoScreenInitialData(context: strongSelf.context, peerId: strongSelf.peerId, subject: .phoneNumber(value)))
+                if let localCollectibleInfo {
+                    collectibleInfo.set(strongSelf.context.sharedContext.makeLocalCollectibleItemInfoScreenInitialData(
+                        context: strongSelf.context,
+                        peerId: strongSelf.peerId,
+                        subject: .phoneNumber(value),
+                        info: localCollectibleInfo
+                    ))
+                } else {
+                    collectibleInfo.set(strongSelf.context.sharedContext.makeCollectibleItemInfoScreenInitialData(context: strongSelf.context, peerId: strongSelf.peerId, subject: .phoneNumber(value)))
+                }
                 
                 actions.tip = .animatedEmoji(text: strongSelf.presentationData.strings.UserInfo_AnonymousNumberInfo, arguments: nil, file: nil, action: { [weak self] in
                     guard let self else {

@@ -39,6 +39,7 @@ final class GiftOptionsScreenComponent: Component {
     let premiumOptions: [CachedPremiumGiftOption]
     let hasBirthday: Bool
     let completion: (() -> Void)?
+    let selection: ((StarGift.Gift) -> Void)?
     
     init(
         context: AccountContext,
@@ -47,7 +48,8 @@ final class GiftOptionsScreenComponent: Component {
         peerId: EnginePeer.Id,
         premiumOptions: [CachedPremiumGiftOption],
         hasBirthday: Bool,
-        completion: (() -> Void)?
+        completion: (() -> Void)?,
+        selection: ((StarGift.Gift) -> Void)?
     ) {
         self.context = context
         self.overNavigationContainer = overNavigationContainer
@@ -56,6 +58,7 @@ final class GiftOptionsScreenComponent: Component {
         self.premiumOptions = premiumOptions
         self.hasBirthday = hasBirthday
         self.completion = completion
+        self.selection = selection
     }
 
     static func ==(lhs: GiftOptionsScreenComponent, rhs: GiftOptionsScreenComponent) -> Bool {
@@ -308,6 +311,10 @@ final class GiftOptionsScreenComponent: Component {
                     mainController = controller
                 }
                 if case let .generic(gift) = gift {
+                    if let selection = component.selection {
+                        selection(gift)
+                        return
+                    }
                     if let lockedUntilDate = gift.lockedUntilDate, currentTime < lockedUntilDate {
                         self.loadingGiftId = gift.id
                         Queue.mainQueue().after(0.25) {
@@ -1937,7 +1944,8 @@ open class GiftOptionsScreen: ViewControllerComponentContainer, GiftOptionsScree
         peerId: EnginePeer.Id,
         premiumOptions: [CachedPremiumGiftOption],
         hasBirthday: Bool,
-        completion: (() -> Void)? = nil
+        completion: (() -> Void)? = nil,
+        selection: ((StarGift.Gift) -> Void)? = nil
     ) {
         self.context = context
         
@@ -1950,7 +1958,8 @@ open class GiftOptionsScreen: ViewControllerComponentContainer, GiftOptionsScree
             peerId: peerId,
             premiumOptions: premiumOptions,
             hasBirthday: hasBirthday,
-            completion: completion
+            completion: completion,
+            selection: selection
         ), navigationBarAppearance: .none, theme: .default, updatedPresentationData: nil)
         
         self.navigationItem.backBarButtonItem = UIBarButtonItem(title: self.context.sharedContext.currentPresentationData.with { $0 }.strings.Common_Back, style: .plain, target: nil, action: nil)

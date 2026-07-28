@@ -177,6 +177,7 @@ enum PeerInfoSettingsSection {
     case faq
     case tips
     case congyugramChannel
+    case congyugramDeveloper
     case phoneNumber
     case username
     case addAccount

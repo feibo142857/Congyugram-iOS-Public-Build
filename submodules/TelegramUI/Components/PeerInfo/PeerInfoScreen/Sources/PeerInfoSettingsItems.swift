@@ -331,6 +331,9 @@ func settingsItems(data: PeerInfoScreenData?, context: AccountContext, presentat
     items[.support]!.append(PeerInfoScreenDisclosureItem(id: 3, text: "Congyugram 官方频道", icon: PresentationResourcesSettings.tips, action: {
         interaction.openSettings(.congyugramChannel)
     }))
+    items[.support]!.append(PeerInfoScreenDisclosureItem(id: 4, text: "联系开发者", icon: PresentationResourcesSettings.support, action: {
+        interaction.openSettings(.congyugramDeveloper)
+    }))
     
     var result: [(AnyHashable, [PeerInfoScreenItem])] = []
     for section in SettingsSection.allCases {

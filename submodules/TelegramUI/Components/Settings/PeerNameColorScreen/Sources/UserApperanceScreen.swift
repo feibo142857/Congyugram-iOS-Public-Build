@@ -772,6 +772,16 @@ final class UserAppearanceScreenComponent: Component {
             }
             
             var signals: [Signal<Never, ApplyError>] = []
+            let localColorFiles: (TelegramMediaFile?, TelegramMediaFile?)?
+            if component.context.isPremium,
+               CongyugramModSettings.shared.isLocalPremiumPeer(peerId: component.context.account.peerId.toInt64()) {
+                localColorFiles = (
+                    resolvedState.replyFileId.flatMap { self.cachedIconFiles[$0] },
+                    resolvedState.backgroundFileId.flatMap { self.cachedIconFiles[$0] }
+                )
+            } else {
+                localColorFiles = nil
+            }
             if !resolvedState.changes.intersection([.nameColor, .replyFileId, .profileColor, .backgroundFileId]).isEmpty {
                 let nameColor: UpdateNameColor
                 switch resolvedState.nameColor {
@@ -861,6 +871,13 @@ final class UserAppearanceScreenComponent: Component {
             }, completed: { [weak self] in
                 guard let self else {
                     return
+                }
+                if let localColorFiles {
+                    CongyugramModSettings.shared.setLocalColorFiles(
+                        peerId: component.context.account.peerId.toInt64(),
+                        backgroundEmojiFile: localColorFiles.0,
+                        profileBackgroundEmojiFile: localColorFiles.1
+                    )
                 }
                 let presentationData = component.context.sharedContext.currentPresentationData.with { $0 }
                 let navigationController: NavigationController? = self.environment?.controller()?.navigationController as? NavigationController

@@ -4023,14 +4023,14 @@ private final class GiftViewSheetContent: CombinedComponent {
                                                     canWear = false
                                                 }
                                             } else {
-                                                canWear = component.context.isPremium
+                                                canWear = component.context.isPremium || uniqueGift.slug.hasPrefix("congyugram-local-")
                                             }
                                             let _ = (ApplicationSpecificNotice.getStarGiftWearTips(accountManager: component.context.sharedContext.accountManager)
                                                      |> deliverOnMainQueue).start(next: { [weak state] count in
                                                 guard let state else {
                                                     return
                                                 }
-                                                if !canWear || count < 3 {
+                                                if uniqueGift.slug.hasPrefix("congyugram-local-") || !canWear || count < 3 {
                                                     state.requestWearPreview()
                                                 } else {
                                                     state.commitWear(uniqueGift)
@@ -4791,7 +4791,7 @@ private final class GiftViewSheetContent: CombinedComponent {
                             ], spacing: 3.0)
                         )
                     )
-                } else if !isChannelGift && !component.context.isPremium {
+                } else if !isChannelGift && !component.context.isPremium && !uniqueGift.slug.hasPrefix("congyugram-local-") {
                     canWear = false
                     buttonContent = AnyComponentWithIdentity(
                         id: AnyHashable("wear_premium"),

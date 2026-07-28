@@ -421,7 +421,7 @@ public final class PeerInfoCoverComponent: Component {
             self.component = component
             self.currentSize = availableSize
                         
-            if previousComponent?.subject?.fileId != component.subject?.fileId {
+            if previousComponent?.subject != component.subject || previousComponent?.files != component.files {
                 if let fileId = component.subject?.fileId, fileId != 0 {
                     if self.patternContentsTarget == nil {
                         self.patternContentsTarget = PatternContentsTarget(imageUpdated: { [weak self] hadContents in

@@ -747,6 +747,26 @@ public class CollectibleItemInfoScreen: ViewControllerComponentContainer {
             }
         }
     }
+
+    public static func localInitialData(context: AccountContext, peerId: EnginePeer.Id, subject: CollectibleItemInfoScreenSubject, info: TelegramCollectibleItemInfo) -> Signal<CollectibleItemInfoScreenInitialData?, NoError> {
+        return context.engine.data.get(
+            TelegramEngine.EngineData.Item.Peer.Peer(id: peerId)
+        )
+        |> map { peer -> CollectibleItemInfoScreenInitialData? in
+            switch subject {
+            case let .username(username):
+                return InitialData(peer: peer, subject: .username(ResolvedSubject.Username(
+                    username: username,
+                    info: info
+                )))
+            case let .phoneNumber(phoneNumber):
+                return InitialData(peer: peer, subject: .phoneNumber(ResolvedSubject.PhoneNumber(
+                    phoneNumber: phoneNumber,
+                    info: info
+                )))
+            }
+        }
+    }
     
     deinit {
     }

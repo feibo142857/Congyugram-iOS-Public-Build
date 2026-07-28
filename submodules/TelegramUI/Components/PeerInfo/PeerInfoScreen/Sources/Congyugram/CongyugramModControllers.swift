@@ -6,6 +6,7 @@ import TelegramCore
 import TelegramPresentationData
 import ItemListUI
 import AccountContext
+import GiftOptionsScreen
 
 private enum CongyugramModAction: Equatable {
     case premium
@@ -20,7 +21,7 @@ private enum CongyugramModAction: Equatable {
     case usernameMenu(String)
     case toggleUsername(String)
     case importGift
-    case selectCatalogGift(Int64)
+    case openGiftCatalog
     case giftMenu(String)
     case deleteGiftPicker
 }
@@ -40,6 +41,7 @@ private final class CongyugramModControllerArguments {
 
 private final class CongyugramModControllerHolder {
     weak var controller: ItemListController?
+    weak var catalogController: ViewController?
 }
 
 private enum CongyugramModEntry: ItemListNodeEntry {
@@ -633,6 +635,37 @@ private func congyugramGiftAttributeName(_ attribute: StarGift.UniqueGift.Attrib
     }
 }
 
+private func congyugramMergeGiftAttributes(
+    _ sources: [[StarGift.UniqueGift.Attribute]]
+) -> [StarGift.UniqueGift.Attribute] {
+    var result: [StarGift.UniqueGift.Attribute] = []
+    var modelFileIds = Set<Int64>()
+    var patternFileIds = Set<Int64>()
+    var backdropIds = Set<Int32>()
+
+    for source in sources {
+        for attribute in source {
+            switch attribute {
+            case let .model(_, file, _, _):
+                if modelFileIds.insert(file.fileId.id).inserted {
+                    result.append(attribute)
+                }
+            case let .pattern(_, file, _):
+                if patternFileIds.insert(file.fileId.id).inserted {
+                    result.append(attribute)
+                }
+            case let .backdrop(_, id, _, _, _, _, _):
+                if backdropIds.insert(id).inserted {
+                    result.append(attribute)
+                }
+            case .originalInfo:
+                break
+            }
+        }
+    }
+    return result
+}
+
 private func congyugramBackdropCatalog() -> [StarGift.UniqueGift.Attribute] {
     let colors: [(String, Int32, UInt32, UInt32, UInt32, UInt32)] = [
         ("Black", -1001, 0x151515, 0x050505, 0x343434, 0xffffff),
@@ -735,7 +768,7 @@ private func congyugramMakeLocalGift(
         canUpgrade: false,
         canExportDate: nil,
         upgradeStars: nil,
-        transferStars: nil,
+        transferStars: 0,
         canTransferDate: nil,
         canResaleDate: nil,
         collectionIds: nil,
@@ -743,6 +776,35 @@ private func congyugramMakeLocalGift(
         upgradeSeparate: false,
         dropOriginalDetailsStars: nil,
         number: number,
+        isRefunded: false,
+        canCraftAt: nil
+    )
+}
+
+private func congyugramMakeLocalGenericGift(gift: StarGift.Gift) -> ProfileGiftsContext.State.StarGift {
+    let slug = "congyugram-local-generic-\(UUID().uuidString.lowercased())"
+    return ProfileGiftsContext.State.StarGift(
+        gift: .generic(gift),
+        reference: .slug(slug: slug),
+        fromPeer: nil,
+        date: Int32(Date().timeIntervalSince1970),
+        text: nil,
+        entities: nil,
+        nameHidden: false,
+        savedToProfile: true,
+        pinnedToTop: false,
+        convertStars: nil,
+        canUpgrade: false,
+        canExportDate: nil,
+        upgradeStars: nil,
+        transferStars: nil,
+        canTransferDate: nil,
+        canResaleDate: nil,
+        collectionIds: nil,
+        prepaidUpgradeHash: nil,
+        upgradeSeparate: false,
+        dropOriginalDetailsStars: nil,
+        number: nil,
         isRefunded: false,
         canCraftAt: nil
     )
@@ -795,7 +857,7 @@ private func congyugramMakeImportedLocalGift(
         canUpgrade: false,
         canExportDate: nil,
         upgradeStars: nil,
-        transferStars: nil,
+        transferStars: 0,
         canTransferDate: nil,
         canResaleDate: nil,
         collectionIds: nil,
@@ -820,49 +882,84 @@ private func congyugramGiftLabel(_ gift: ProfileGiftsContext.State.StarGift) -> 
 private func congyugramGiftModController(context: AccountContext) -> ViewController {
     let peerId = context.account.peerId.toInt64()
     let holder = CongyugramModControllerHolder()
-    var catalogById: [Int64: StarGift.Gift] = [:]
 
     let _ = context.engine.payments.keepStarGiftsUpdated().startStandalone()
 
-    func showGiftBuilder(_ baseGift: StarGift.Gift) {
-        guard let controller = holder.controller else {
-            return
-        }
+    func showGiftBuilder(_ baseGift: StarGift.Gift, controller: ViewController) {
         let progress = UIAlertController(title: "正在载入礼物属性", message: "请稍候…", preferredStyle: .alert)
         controller.present(progress, animated: true)
-        let _ = (context.engine.payments.getStarGiftUpgradeAttributes(giftId: baseGift.id)
+        let completeAttributes = context.engine.payments.getStarGiftUpgradeAttributes(giftId: baseGift.id)
+        |> last
+        |> timeout(12.0, queue: .mainQueue(), alternate: .single(nil))
+        let previewAttributes = context.engine.payments.starGiftUpgradePreview(giftId: baseGift.id)
+        |> map { preview in
+            return preview?.attributes
+        }
         |> take(1)
+        |> timeout(12.0, queue: .mainQueue(), alternate: .single(nil))
+        let resaleContext = ResaleGiftsContext(account: context.account, giftId: baseGift.id, forCrafting: false)
+        let resaleAttributes = resaleContext.state
+        |> filter { state in
+            if case .ready = state.dataState {
+                return true
+            } else {
+                return false
+            }
+        }
+        |> map { state -> [StarGift.UniqueGift.Attribute]? in
+            return state.attributes
+        }
+        |> take(1)
+        |> timeout(12.0, queue: .mainQueue(), alternate: .single(nil))
+        let attributesSignal: Signal<[StarGift.UniqueGift.Attribute], NoError> = combineLatest(
+            completeAttributes,
+            previewAttributes,
+            resaleAttributes
+        )
+        |> map { complete, preview, resale in
+            return congyugramMergeGiftAttributes([
+                complete ?? [],
+                preview ?? [],
+                resale ?? []
+            ])
+        }
+        |> take(1)
+        let _ = (attributesSignal
         |> deliverOnMainQueue).startStandalone(next: { attributes in
             progress.dismiss(animated: true)
-            var models = (attributes ?? []).filter {
+            let models = attributes.filter {
                 if case .model = $0 {
                     return true
                 }
                 return false
             }
-            var backdrops = (attributes ?? []).filter {
+            var backdrops = attributes.filter {
                 if case .backdrop = $0 {
                     return true
                 }
                 return false
             }
-            var patterns = (attributes ?? []).filter {
+            let patterns = attributes.filter {
                 if case .pattern = $0 {
                     return true
                 }
                 return false
-            }
-            if models.isEmpty {
-                models = [.model(name: "Original", file: baseGift.file, rarity: .permille(10), crafted: false)]
-            }
-            if patterns.isEmpty {
-                patterns = [.pattern(name: "Original", file: baseGift.file, rarity: .permille(10))]
             }
             for builtInBackdrop in congyugramBackdropCatalog() {
                 let name = congyugramGiftAttributeName(builtInBackdrop)
                 if !backdrops.contains(where: { congyugramGiftAttributeName($0).caseInsensitiveCompare(name) == .orderedSame }) {
                     backdrops.append(builtInBackdrop)
                 }
+            }
+            guard !models.isEmpty, !backdrops.isEmpty, !patterns.isEmpty else {
+                let alert = UIAlertController(
+                    title: "礼物属性加载失败",
+                    message: "没有取得完整的型号、背景和符号，请检查网络后重试。",
+                    preferredStyle: .alert
+                )
+                alert.addAction(UIAlertAction(title: "确定", style: .default))
+                controller.present(alert, animated: true)
+                return
             }
 
             congyugramSelectGiftAttribute(controller: controller, title: "选择型号", attributes: models, completion: { model in
@@ -934,31 +1031,60 @@ private func congyugramGiftModController(context: AccountContext) -> ViewControl
                         })
                     }
                 )
-            case let .selectCatalogGift(id):
-                if let gift = catalogById[id] {
-                    showGiftBuilder(gift)
+            case .openGiftCatalog:
+                guard let starsContext = context.starsContext, let controller = holder.controller else {
+                    return
                 }
+                let catalogController = GiftOptionsScreen(
+                    context: context,
+                    starsContext: starsContext,
+                    peerId: context.account.peerId,
+                    premiumOptions: [],
+                    hasBirthday: false,
+                    selection: { [weak holder] gift in
+                        if gift.upgradeStars == nil {
+                            CongyugramModSettings.shared.addLocalGift(
+                                peerId: peerId,
+                                gift: congyugramMakeLocalGenericGift(gift: gift)
+                            )
+                        } else if let catalogController = holder?.catalogController {
+                            showGiftBuilder(gift, controller: catalogController)
+                        }
+                    }
+                )
+                holder.catalogController = catalogController
+                controller.push(catalogController)
             case let .giftMenu(slug):
                 guard let controller = holder.controller, let gift = CongyugramModSettings.shared.localGifts(peerId: peerId).first(where: { CongyugramModSettings.shared.localGiftSlug($0) == slug }) else {
                     return
                 }
                 let isWorn = CongyugramModSettings.shared.wornGift(peerId: peerId).flatMap { CongyugramModSettings.shared.localGiftSlug($0) } == slug
                 let alert = UIAlertController(title: congyugramGiftLabel(gift), message: "管理本地礼物", preferredStyle: .actionSheet)
-                alert.addAction(UIAlertAction(title: isWorn ? "取消佩戴" : "佩戴到主页", style: .default, handler: { _ in
-                    if !isWorn, case let .unique(uniqueGift) = gift.gift {
-                        let _ = (context.account.postbox.transaction { transaction in
-                            for attribute in uniqueGift.attributes {
-                                switch attribute {
-                                case let .model(_, file, _, _), let .pattern(_, file, _):
-                                    transaction.storeMediaIfNotPresent(media: file)
-                                default:
-                                    break
+                if case let .unique(uniqueGift) = gift.gift {
+                    alert.addAction(UIAlertAction(title: isWorn ? "取消佩戴" : "佩戴到主页", style: .default, handler: { _ in
+                        if isWorn {
+                            CongyugramModSettings.shared.setWornGift(peerId: peerId, slug: nil)
+                        } else {
+                            let _ = (context.account.postbox.transaction { transaction in
+                                for attribute in uniqueGift.attributes {
+                                    switch attribute {
+                                    case let .model(_, file, _, _), let .pattern(_, file, _):
+                                        transaction.storeMediaIfNotPresent(media: file)
+                                    default:
+                                        break
+                                    }
                                 }
                             }
-                        }).startStandalone()
-                    }
-                    CongyugramModSettings.shared.setWornGift(peerId: peerId, slug: isWorn ? nil : slug)
-                }))
+                            |> deliverOnMainQueue).startStandalone(completed: {
+                                controller.push(context.sharedContext.makeGiftWearPreviewScreen(
+                                    context: context,
+                                    gift: .unique(uniqueGift),
+                                    attributes: uniqueGift.attributes
+                                ))
+                            })
+                        }
+                    }))
+                }
                 alert.addAction(UIAlertAction(title: gift.pinnedToTop ? "取消置顶" : "置顶", style: .default, handler: { _ in
                     if let reference = gift.reference {
                         _ = CongyugramModSettings.shared.updateLocalGiftPinned(peerId: peerId, reference: reference, pinned: !gift.pinnedToTop)
@@ -999,11 +1125,9 @@ private func congyugramGiftModController(context: AccountContext) -> ViewControl
     let signal = combineLatest(
         queue: .mainQueue(),
         context.sharedContext.presentationData,
-        CongyugramModSettings.shared.revision,
-        context.engine.payments.cachedStarGifts()
+        CongyugramModSettings.shared.revision
     )
-    |> map { presentationData, _, catalog -> (ItemListControllerState, (ItemListNodeState, Any)) in
-        catalogById.removeAll()
+    |> map { presentationData, _ -> (ItemListControllerState, (ItemListNodeState, Any)) in
         var entries: [CongyugramModEntry] = [
             .text(id: 0, section: 0, text: "复制现有礼物链接可一键导入；导入后的拥有者固定为当前账号。"),
             .action(id: 1, section: 0, title: "粘贴链接并导入", destructive: false, action: .importGift),
@@ -1033,22 +1157,8 @@ private func congyugramGiftModController(context: AccountContext) -> ViewControl
             stableId += 1
         }
 
-        entries.append(.header(id: 1000, section: 2, text: "选择礼物种类"))
-        var catalogStableId: Int32 = 1001
-        for gift in catalog ?? [] {
-            guard case let .generic(genericGift) = gift else {
-                continue
-            }
-            catalogById[genericGift.id] = genericGift
-            entries.append(.disclosure(
-                id: catalogStableId,
-                section: 2,
-                title: genericGift.title ?? "Gift",
-                label: "⭐️ \(genericGift.price)",
-                action: .selectCatalogGift(genericGift.id)
-            ))
-            catalogStableId += 1
-        }
+        entries.append(.header(id: 1000, section: 2, text: "礼物图鉴"))
+        entries.append(.disclosure(id: 1001, section: 2, title: "选择礼物", label: "图标网格", action: .openGiftCatalog))
         entries.append(.action(id: 30000, section: 3, title: "删除礼物", destructive: true, action: .deleteGiftPicker))
         return congyugramControllerState(
             presentationData: presentationData,

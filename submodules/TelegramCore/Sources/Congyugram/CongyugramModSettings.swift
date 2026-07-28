@@ -66,8 +66,10 @@ private struct CongyugramAccountModState: Codable {
     var localNameColorRawValue: Int32?
     var localCollectibleColor: PeerCollectibleColor?
     var localBackgroundEmojiId: Int64?
+    var localBackgroundEmojiFile: TelegramMediaFile?
     var localProfileColorRawValue: Int32?
     var localProfileBackgroundEmojiId: Int64?
+    var localProfileBackgroundEmojiFile: TelegramMediaFile?
     var originalPinnedDialogIds: [Int64]?
     var extraPinnedDialogIds: [Int64] = []
 }
@@ -220,8 +222,124 @@ public final class CongyugramModSettings {
         return self.usernames(peerId: peerId).first(where: { $0.active })?.username
     }
 
+    private func normalizedUsername(_ value: String) -> String {
+        var result = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if result.hasPrefix("@") {
+            result.removeFirst()
+        }
+        return result.lowercased()
+    }
+
+    private func normalizedPhoneNumber(_ value: String) -> String {
+        return value.filter { $0.isNumber }
+    }
+
+    private func collectiblePurchaseDate(_ value: String) -> Int32 {
+        let text = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let timestamp = Int32(text), timestamp > 0 {
+            return timestamp
+        }
+
+        let formats = [
+            "yyyy-MM-dd HH:mm",
+            "yyyy/M/d HH:mm",
+            "yyyy年M月d日 HH:mm",
+            "M月d日 HH:mm",
+            "MM-dd HH:mm"
+        ]
+        for format in formats {
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "zh_CN")
+            formatter.timeZone = TimeZone.current
+            formatter.dateFormat = format
+            if let date = formatter.date(from: text) {
+                var resolvedDate = date
+                if !format.contains("yyyy") {
+                    let calendar = Calendar.current
+                    let currentYear = calendar.component(.year, from: Date())
+                    var components = calendar.dateComponents([.month, .day, .hour, .minute], from: date)
+                    components.year = currentYear
+                    resolvedDate = calendar.date(from: components) ?? date
+                }
+                return Int32(clamping: Int64(resolvedDate.timeIntervalSince1970))
+            }
+        }
+        return Int32(clamping: Int64(Date().timeIntervalSince1970))
+    }
+
+    private func collectibleInfo(
+        subject: TelegramCollectibleItemInfo.Subject,
+        price: String,
+        time: String,
+        url: String
+    ) -> TelegramCollectibleItemInfo {
+        let normalizedPrice = price.replacingOccurrences(of: ",", with: ".")
+        let tonAmount = max(0.0, Double(normalizedPrice) ?? 10.0)
+        return TelegramCollectibleItemInfo(
+            subject: subject,
+            purchaseDate: self.collectiblePurchaseDate(time),
+            currency: "USD",
+            currencyAmount: Int64((tonAmount * 148.5).rounded()),
+            cryptoCurrency: "TON",
+            cryptoCurrencyAmount: Int64((tonAmount * 1_000_000_000.0).rounded()),
+            url: url
+        )
+    }
+
+    public func localCollectibleUsernameInfo(peerId: Int64, username: String) -> TelegramCollectibleItemInfo? {
+        let normalized = self.normalizedUsername(username)
+        guard !normalized.isEmpty else {
+            return nil
+        }
+
+        let primary = self.profileOverride(peerId: peerId, field: .username)
+        if primary.enabled && primary.collectibleEnabled && self.normalizedUsername(primary.value) == normalized {
+            return self.collectibleInfo(
+                subject: .username(primary.value),
+                price: primary.collectiblePrice,
+                time: primary.collectibleTime,
+                url: "https://fragment.com/username/\(normalized)"
+            )
+        }
+        if let item = self.usernames(peerId: peerId).first(where: {
+            $0.active && $0.collectibleEnabled && self.normalizedUsername($0.username) == normalized
+        }) {
+            return self.collectibleInfo(
+                subject: .username(item.username),
+                price: item.collectiblePrice,
+                time: item.collectibleTime,
+                url: "https://fragment.com/username/\(normalized)"
+            )
+        }
+        return nil
+    }
+
+    public func localCollectiblePhoneNumberInfo(peerId: Int64, phoneNumber: String) -> TelegramCollectibleItemInfo? {
+        let normalized = self.normalizedPhoneNumber(phoneNumber)
+        guard !normalized.isEmpty else {
+            return nil
+        }
+        let item = self.profileOverride(peerId: peerId, field: .phone)
+        guard item.enabled && item.collectibleEnabled && self.normalizedPhoneNumber(item.value) == normalized else {
+            return nil
+        }
+        return self.collectibleInfo(
+            subject: .phoneNumber(item.value),
+            price: item.collectiblePrice,
+            time: item.collectibleTime,
+            url: "https://fragment.com/number/\(normalized)"
+        )
+    }
+
     public func localGifts(peerId: Int64) -> [ProfileGiftsContext.State.StarGift] {
-        return self.read { $0.accounts[self.accountKey(peerId)]?.gifts ?? [] }
+        return self.read { state in
+            return (state.accounts[self.accountKey(peerId)]?.gifts ?? []).map { gift in
+                if self.localGiftSlug(gift) != nil, case .unique = gift.gift, gift.transferStars == nil {
+                    return gift.withTransferStars(0)
+                }
+                return gift
+            }
+        }
     }
 
     public func addLocalGift(peerId: Int64, gift: ProfileGiftsContext.State.StarGift) {
@@ -334,6 +452,18 @@ public final class CongyugramModSettings {
         )
     }
 
+    public func wornGiftPatternFile(peerId: Int64) -> TelegramMediaFile? {
+        guard let gift = self.wornGift(peerId: peerId), case let .unique(uniqueGift) = gift.gift else {
+            return nil
+        }
+        for attribute in uniqueGift.attributes {
+            if case let .pattern(_, file, _) = attribute {
+                return file
+            }
+        }
+        return nil
+    }
+
     public func localEmojiStatus(peerId: Int64) -> PeerEmojiStatus? {
         return self.read { $0.accounts[self.accountKey(peerId)]?.localEmojiStatus }
     }
@@ -351,8 +481,10 @@ public final class CongyugramModSettings {
         peerId: Int64,
         nameColor: PeerColor,
         backgroundEmojiId: Int64?,
+        backgroundEmojiFile: TelegramMediaFile?,
         profileColor: PeerNameColor?,
-        profileBackgroundEmojiId: Int64?
+        profileBackgroundEmojiId: Int64?,
+        profileBackgroundEmojiFile: TelegramMediaFile?
     ) {
         self.update { state in
             var account = state.accounts[self.accountKey(peerId)] ?? CongyugramAccountModState()
@@ -365,9 +497,38 @@ public final class CongyugramModSettings {
                 account.localNameColorRawValue = nil
                 account.localCollectibleColor = color
             }
+            let previousBackgroundEmojiFile = account.localBackgroundEmojiFile
+            let previousProfileBackgroundEmojiFile = account.localProfileBackgroundEmojiFile
             account.localBackgroundEmojiId = backgroundEmojiId
+            if let backgroundEmojiFile, backgroundEmojiFile.fileId.id == backgroundEmojiId {
+                account.localBackgroundEmojiFile = backgroundEmojiFile
+            } else if previousBackgroundEmojiFile?.fileId.id != backgroundEmojiId {
+                account.localBackgroundEmojiFile = nil
+            }
             account.localProfileColorRawValue = profileColor?.rawValue
             account.localProfileBackgroundEmojiId = profileBackgroundEmojiId
+            if let profileBackgroundEmojiFile, profileBackgroundEmojiFile.fileId.id == profileBackgroundEmojiId {
+                account.localProfileBackgroundEmojiFile = profileBackgroundEmojiFile
+            } else if previousProfileBackgroundEmojiFile?.fileId.id != profileBackgroundEmojiId {
+                account.localProfileBackgroundEmojiFile = nil
+            }
+            state.accounts[self.accountKey(peerId)] = account
+        }
+    }
+
+    public func setLocalColorFiles(
+        peerId: Int64,
+        backgroundEmojiFile: TelegramMediaFile?,
+        profileBackgroundEmojiFile: TelegramMediaFile?
+    ) {
+        self.update { state in
+            var account = state.accounts[self.accountKey(peerId)] ?? CongyugramAccountModState()
+            if let backgroundEmojiFile, backgroundEmojiFile.fileId.id == account.localBackgroundEmojiId {
+                account.localBackgroundEmojiFile = backgroundEmojiFile
+            }
+            if let profileBackgroundEmojiFile, profileBackgroundEmojiFile.fileId.id == account.localProfileBackgroundEmojiId {
+                account.localProfileBackgroundEmojiFile = profileBackgroundEmojiFile
+            }
             state.accounts[self.accountKey(peerId)] = account
         }
     }
@@ -417,6 +578,15 @@ public final class CongyugramModSettings {
                 return nil
             }
             return account.localProfileBackgroundEmojiId
+        }
+    }
+
+    public func localProfileBackgroundEmojiFile(peerId: Int64) -> TelegramMediaFile? {
+        return self.read { state in
+            guard let account = state.accounts[self.accountKey(peerId)], account.hasLocalColors else {
+                return nil
+            }
+            return account.localProfileBackgroundEmojiFile
         }
     }
 
