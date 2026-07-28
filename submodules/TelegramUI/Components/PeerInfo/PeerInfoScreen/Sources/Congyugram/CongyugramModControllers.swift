@@ -813,6 +813,42 @@ private func congyugramMergeGiftAttributes(
 }
 
 private var congyugramGiftAttributesCache: [Int64: [StarGift.UniqueGift.Attribute]] = [:]
+private var congyugramGiftAvailabilityCache: [Int64: StarGift.UniqueGift.Availability] = [:]
+private var congyugramGiftAvailabilityLoads: [Int64: MetaDisposable] = [:]
+
+private func congyugramOfficialGiftAvailabilitySignal(
+    context: AccountContext,
+    gift: StarGift.Gift
+) -> Signal<StarGift.UniqueGift.Availability?, NoError> {
+    if let cachedAvailability = congyugramGiftAvailabilityCache[gift.id] {
+        return .single(cachedAvailability)
+    }
+    return context.engine.payments.getStarGiftUniqueAvailability(giftId: gift.id, title: gift.title)
+    |> deliverOnMainQueue
+    |> map { availability in
+        if let availability, availability.total > 0 {
+            congyugramGiftAvailabilityCache[gift.id] = availability
+        }
+        return availability
+    }
+}
+
+private func congyugramPrefetchOfficialGiftAvailability(
+    context: AccountContext,
+    gift: StarGift.Gift
+) {
+    guard congyugramGiftAvailabilityCache[gift.id] == nil, congyugramGiftAvailabilityLoads[gift.id] == nil else {
+        return
+    }
+    let disposable = MetaDisposable()
+    congyugramGiftAvailabilityLoads[gift.id] = disposable
+    disposable.set((congyugramOfficialGiftAvailabilitySignal(context: context, gift: gift)
+    |> take(1)).start(next: { _ in
+        congyugramGiftAvailabilityLoads.removeValue(forKey: gift.id)?.dispose()
+    }, completed: {
+        congyugramGiftAvailabilityLoads.removeValue(forKey: gift.id)?.dispose()
+    }))
+}
 
 private func congyugramBackdropCatalog() -> [StarGift.UniqueGift.Attribute] {
     let colors: [(String, Int32, UInt32, UInt32, UInt32, UInt32)] = [
@@ -852,22 +888,17 @@ private func congyugramMakeLocalGift(
     model: StarGift.UniqueGift.Attribute,
     backdrop: StarGift.UniqueGift.Attribute,
     pattern: StarGift.UniqueGift.Attribute,
+    officialAvailability: StarGift.UniqueGift.Availability,
     number: Int32,
     valueUsdAmount: Int64
 ) -> ProfileGiftsContext.State.StarGift {
     let token = UUID().uuidString.lowercased()
     let slug = "congyugram-local-\(token)"
     let availability: StarGift.UniqueGift.Availability
-    if let officialAvailability = baseGift.availability, officialAvailability.total > 0 {
-        let total = officialAvailability.total
-        let remains = max(0, min(total, officialAvailability.remains))
-        availability = StarGift.UniqueGift.Availability(
-            issued: max(1, total - remains),
-            total: total
-        )
-    } else {
-        availability = StarGift.UniqueGift.Availability(issued: 1, total: 50000)
-    }
+    availability = StarGift.UniqueGift.Availability(
+        issued: max(0, min(officialAvailability.total, officialAvailability.issued)),
+        total: max(1, officialAvailability.total)
+    )
     let uniqueGift = StarGift.UniqueGift(
         id: -Int64.random(in: 1 ... Int64.max),
         giftId: baseGift.id,
@@ -1023,6 +1054,8 @@ private func congyugramGiftModController(context: AccountContext) -> ViewControl
     let _ = context.engine.payments.keepStarGiftsUpdated().startStandalone()
 
     func showGiftBuilder(_ baseGift: StarGift.Gift, controller: ViewController) {
+        congyugramPrefetchOfficialGiftAvailability(context: context, gift: baseGift)
+
         func openAttributePicker(_ sourceAttributes: [StarGift.UniqueGift.Attribute]) {
             var attributes = congyugramMergeGiftAttributes([sourceAttributes])
             var backdrops = attributes.filter {
@@ -1091,16 +1124,40 @@ private func congyugramGiftModController(context: AccountContext) -> ViewControl
                     congyugramPresentGiftNumberAndValueEditor(
                         controller: controller,
                         completion: { number, valueUsdAmount in
-                            let gift = congyugramMakeLocalGift(
-                                peerId: context.account.peerId,
-                                baseGift: baseGift,
-                                model: model,
-                                backdrop: backdrop,
-                                pattern: pattern,
-                                number: number,
-                                valueUsdAmount: valueUsdAmount
-                            )
-                            CongyugramModSettings.shared.addLocalGift(peerId: peerId, gift: gift)
+                            func addGift(officialAvailability: StarGift.UniqueGift.Availability) {
+                                let gift = congyugramMakeLocalGift(
+                                    peerId: context.account.peerId,
+                                    baseGift: baseGift,
+                                    model: model,
+                                    backdrop: backdrop,
+                                    pattern: pattern,
+                                    officialAvailability: officialAvailability,
+                                    number: number,
+                                    valueUsdAmount: valueUsdAmount
+                                )
+                                CongyugramModSettings.shared.addLocalGift(peerId: peerId, gift: gift)
+                            }
+
+                            if let officialAvailability = congyugramGiftAvailabilityCache[baseGift.id] {
+                                addGift(officialAvailability: officialAvailability)
+                            } else {
+                                let availabilitySignal = congyugramOfficialGiftAvailabilitySignal(context: context, gift: baseGift)
+                                |> take(1)
+                                |> timeout(8.0, queue: .mainQueue(), alternate: .single(nil))
+                                let _ = availabilitySignal.startStandalone(next: { officialAvailability in
+                                    guard let officialAvailability else {
+                                        let alert = UIAlertController(
+                                            title: "无法读取官方发行数量",
+                                            message: "请检查 Telegram 网络连接后重试。",
+                                            preferredStyle: .alert
+                                        )
+                                        alert.addAction(UIAlertAction(title: "确定", style: .default))
+                                        controller.present(alert, animated: true)
+                                        return
+                                    }
+                                    addGift(officialAvailability: officialAvailability)
+                                })
+                            }
                         }
                     )
                 }

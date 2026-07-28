@@ -3728,6 +3728,67 @@ func _internal_getUniqueStarGift(account: Account, slug: String) -> Signal<StarG
     }
 }
 
+func _internal_getStarGiftUniqueAvailability(account: Account, giftId: Int64, title: String?) -> Signal<StarGift.UniqueGift.Availability?, NoError> {
+    let resaleAvailability = account.network.request(
+        Api.functions.payments.getResaleStarGifts(
+            flags: 0,
+            attributesHash: nil,
+            giftId: giftId,
+            attributes: nil,
+            offset: "",
+            limit: 1
+        )
+    )
+    |> map(Optional.init)
+    |> `catch` { _ -> Signal<Api.payments.ResaleStarGifts?, NoError> in
+        return .single(nil)
+    }
+    |> map { result -> StarGift.UniqueGift.Availability? in
+        guard let result else {
+            return nil
+        }
+        switch result {
+        case let .resaleStarGifts(data):
+            for apiGift in data.gifts {
+                if let gift = StarGift(apiStarGift: apiGift), case let .unique(uniqueGift) = gift, uniqueGift.giftId == giftId {
+                    return uniqueGift.availability
+                }
+            }
+            return nil
+        }
+    }
+
+    let sampleAvailability: Signal<StarGift.UniqueGift.Availability?, NoError>
+    let slugBase = title.map {
+        $0.components(separatedBy: CharacterSet.alphanumerics.inverted).joined()
+    }
+    if let slugBase, !slugBase.isEmpty {
+        func loadSample(number: Int32) -> Signal<StarGift.UniqueGift.Availability?, NoError> {
+            return _internal_getUniqueStarGift(account: account, slug: "\(slugBase)-\(number)")
+            |> map { gift -> StarGift.UniqueGift.Availability? in
+                guard gift.giftId == giftId else {
+                    return nil
+                }
+                return gift.availability
+            }
+            |> `catch` { _ -> Signal<StarGift.UniqueGift.Availability?, NoError> in
+                if number == 1 {
+                    return loadSample(number: 2)
+                }
+                return .single(nil)
+            }
+        }
+        sampleAvailability = loadSample(number: 1)
+    } else {
+        sampleAvailability = .single(nil)
+    }
+
+    return combineLatest(sampleAvailability, resaleAvailability)
+    |> map { sampleAvailability, resaleAvailability in
+        return sampleAvailability ?? resaleAvailability
+    }
+}
+
 func _internal_getUniqueStarGiftValueInfo(account: Account, slug: String) -> Signal<StarGift.UniqueGift.ValueInfo?, NoError> {
     return account.network.request(Api.functions.payments.getUniqueStarGiftValueInfo(slug: slug))
     |> map(Optional.init)

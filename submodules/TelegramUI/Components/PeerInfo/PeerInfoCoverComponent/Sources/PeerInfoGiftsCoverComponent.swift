@@ -274,24 +274,37 @@ public final class PeerInfoGiftsCoverComponent: Component {
                         }
                         return nil
                     }
-                    |> distinctUntilChanged
-                ).start(next: { [weak self] state, giftStatusId in
+                    |> distinctUntilChanged,
+                    CongyugramModSettings.shared.revision
+                ).start(next: { [weak self] state, giftStatusId, _ in
                     guard let self else {
                         return
                     }
+
+                    var effectiveWornGiftId = giftStatusId
+                    var effectiveWornGiftSlug: String?
+                    if component.peerId == component.context.account.peerId {
+                        if let wornGift = CongyugramModSettings.shared.wornGift(peerId: component.peerId.toInt64()), case let .unique(uniqueGift) = wornGift.gift {
+                            effectiveWornGiftId = uniqueGift.id
+                            effectiveWornGiftSlug = uniqueGift.slug
+                        } else if let giftStatusId, giftStatusId < 0 {
+                            // The postbox can briefly retain the local collectible status after
+                            // taking it off. The Mod state is authoritative for local gifts.
+                            effectiveWornGiftId = nil
+                        }
+                    }
                     
-                    let pinnedGifts: [ProfileGiftsContext.State.StarGift]
-                    if giftStatusId != nil {
-                        pinnedGifts = []
-                    } else {
-                        pinnedGifts = state.gifts.filter { gift in
-                            if gift.pinnedToTop {
-                                if case .unique = gift.gift {
-                                    return true
-                                }
-                            }
+                    let pinnedGifts = state.gifts.filter { gift in
+                        guard gift.pinnedToTop, case let .unique(uniqueGift) = gift.gift else {
                             return false
                         }
+                        if let effectiveWornGiftId, uniqueGift.id == effectiveWornGiftId {
+                            return false
+                        }
+                        if let effectiveWornGiftSlug, uniqueGift.slug == effectiveWornGiftSlug {
+                            return false
+                        }
+                        return true
                     }
                     self.gifts = pinnedGifts
                     

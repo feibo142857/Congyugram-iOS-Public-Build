@@ -152,6 +152,10 @@ public extension TelegramEngine {
         public func getUniqueStarGift(slug: String) -> Signal<StarGift.UniqueGift, GetUniqueStarGiftError> {
             return _internal_getUniqueStarGift(account: self.account, slug: slug)
         }
+
+        public func getStarGiftUniqueAvailability(giftId: Int64, title: String?) -> Signal<StarGift.UniqueGift.Availability?, NoError> {
+            return _internal_getStarGiftUniqueAvailability(account: self.account, giftId: giftId, title: title)
+        }
         
         public func getUniqueStarGiftValueInfo(slug: String) -> Signal<StarGift.UniqueGift.ValueInfo?, NoError> {
             return _internal_getUniqueStarGiftValueInfo(account: self.account, slug: slug)
