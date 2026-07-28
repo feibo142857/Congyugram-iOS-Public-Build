@@ -259,7 +259,7 @@ public final class PeerInfoGiftsCoverComponent: Component {
                     seed: self.seed
                 )
                 
-                self.iconPositions = positionGenerator.generatePositions(count: 12, itemSize: iconSize)
+                self.iconPositions = positionGenerator.generatePositions(count: 6, itemSize: iconSize)
             }
             self.appliedGiftIds = giftIds
             
@@ -280,13 +280,18 @@ public final class PeerInfoGiftsCoverComponent: Component {
                         return
                     }
                     
-                    let pinnedGifts = state.gifts.filter { gift in
-                        if gift.pinnedToTop {
-                            if case let .unique(uniqueGift) = gift.gift {
-                                return uniqueGift.id != giftStatusId
+                    let pinnedGifts: [ProfileGiftsContext.State.StarGift]
+                    if giftStatusId != nil {
+                        pinnedGifts = []
+                    } else {
+                        pinnedGifts = state.gifts.filter { gift in
+                            if gift.pinnedToTop {
+                                if case .unique = gift.gift {
+                                    return true
+                                }
                             }
+                            return false
                         }
-                        return false
                     }
                     self.gifts = pinnedGifts
                     
@@ -298,7 +303,7 @@ public final class PeerInfoGiftsCoverComponent: Component {
                                                                           
             var validIds = Set<AnyHashable>()
             var index = 0
-            for gift in self.gifts.prefix(12) {
+            for gift in self.gifts.prefix(6) {
                 guard index < self.iconPositions.count else {
                     break
                 }

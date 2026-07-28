@@ -186,6 +186,44 @@ private func congyugramPresentTextEditor(
     controller.present(alert, animated: true)
 }
 
+private func congyugramPresentGiftNumberAndValueEditor(
+    controller: ViewController?,
+    completion: @escaping (Int32, Int64) -> Void
+) {
+    guard let controller else {
+        return
+    }
+    let alert = UIAlertController(title: "自定义礼物资料", message: nil, preferredStyle: .alert)
+    alert.addTextField { textField in
+        textField.text = "1234"
+        textField.placeholder = "编号"
+        textField.keyboardType = .numberPad
+        textField.clearButtonMode = .whileEditing
+    }
+    alert.addTextField { textField in
+        textField.placeholder = "价值（美元，例如 250.00）"
+        textField.keyboardType = .decimalPad
+        textField.clearButtonMode = .whileEditing
+    }
+    alert.addAction(UIAlertAction(title: "取消", style: .cancel))
+    alert.addAction(UIAlertAction(title: "保存", style: .default, handler: { [weak alert] _ in
+        guard let textFields = alert?.textFields, textFields.count >= 2 else {
+            return
+        }
+        let numberText = textFields[0].text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let valueText = (textFields[1].text ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: ",", with: ".")
+        guard let number = Int32(numberText), number > 0,
+              let value = Double(valueText), value > 0.0,
+              value <= Double(Int64.max) / 100.0 else {
+            return
+        }
+        completion(number, Int64((value * 100.0).rounded()))
+    }))
+    controller.present(alert, animated: true)
+}
+
 private func congyugramParseCollectibleDate(_ value: String) -> Date? {
     let text = value.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !text.isEmpty else {
@@ -814,10 +852,22 @@ private func congyugramMakeLocalGift(
     model: StarGift.UniqueGift.Attribute,
     backdrop: StarGift.UniqueGift.Attribute,
     pattern: StarGift.UniqueGift.Attribute,
-    number: Int32
+    number: Int32,
+    valueUsdAmount: Int64
 ) -> ProfileGiftsContext.State.StarGift {
     let token = UUID().uuidString.lowercased()
     let slug = "congyugram-local-\(token)"
+    let availability: StarGift.UniqueGift.Availability
+    if let officialAvailability = baseGift.availability, officialAvailability.total > 0 {
+        let total = officialAvailability.total
+        let remains = max(0, min(total, officialAvailability.remains))
+        availability = StarGift.UniqueGift.Availability(
+            issued: max(1, total - remains),
+            total: total
+        )
+    } else {
+        availability = StarGift.UniqueGift.Availability(issued: 1, total: 50000)
+    }
     let uniqueGift = StarGift.UniqueGift(
         id: -Int64.random(in: 1 ... Int64.max),
         giftId: baseGift.id,
@@ -826,14 +876,14 @@ private func congyugramMakeLocalGift(
         slug: slug,
         owner: .peerId(peerId),
         attributes: [model, backdrop, pattern],
-        availability: StarGift.UniqueGift.Availability(issued: max(1, number), total: max(50000, number)),
+        availability: availability,
         giftAddress: nil,
         resellAmounts: nil,
         resellForTonOnly: false,
         releasedBy: baseGift.releasedBy,
-        valueAmount: nil,
-        valueCurrency: nil,
-        valueUsdAmount: nil,
+        valueAmount: valueUsdAmount,
+        valueCurrency: "USD",
+        valueUsdAmount: valueUsdAmount,
         flags: [],
         themePeerId: nil,
         peerColor: nil,
@@ -1038,23 +1088,17 @@ private func congyugramGiftModController(context: AccountContext) -> ViewControl
                     }) else {
                         return
                     }
-                    congyugramPresentTextEditor(
+                    congyugramPresentGiftNumberAndValueEditor(
                         controller: controller,
-                        title: "自定义编号",
-                        value: "1234",
-                        placeholder: "请输入正整数",
-                        keyboardType: .numberPad,
-                        completion: { text in
-                            guard let number = Int32(text), number > 0 else {
-                                return
-                            }
+                        completion: { number, valueUsdAmount in
                             let gift = congyugramMakeLocalGift(
                                 peerId: context.account.peerId,
                                 baseGift: baseGift,
                                 model: model,
                                 backdrop: backdrop,
                                 pattern: pattern,
-                                number: number
+                                number: number,
+                                valueUsdAmount: valueUsdAmount
                             )
                             CongyugramModSettings.shared.addLocalGift(peerId: peerId, gift: gift)
                         }

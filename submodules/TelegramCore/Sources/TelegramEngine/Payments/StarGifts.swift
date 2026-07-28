@@ -2247,7 +2247,17 @@ private final class ProfileGiftsContextImpl {
     }
     
     public func updatePinnedToTopStarGifts(references: [StarGiftReference]) {
-        let existingGifts = Set(references)
+        let localReferences: Set<StarGiftReference>
+        if self.peerId == self.account.peerId {
+            localReferences = CongyugramModSettings.shared.updateLocalGiftPinnedOrder(
+                peerId: self.peerId.toInt64(),
+                references: references
+            )
+        } else {
+            localReferences = Set()
+        }
+        let remoteReferences = references.filter { !localReferences.contains($0) }
+        let existingGifts = Set(remoteReferences)
         var saveSignals: [Signal<Never, NoError>] = []
         let currentPinnedGifts = self.gifts.filter { gift in
             if let reference = gift.reference {
@@ -2274,7 +2284,7 @@ private final class ProfileGiftsContextImpl {
         }
         
         var pinnedGifts: [ProfileGiftsContext.State.StarGift] = []
-        for reference in references {
+        for reference in remoteReferences {
             if let gift = currentPinnedGifts.first(where: { $0.reference == reference }) {
                 pinnedGifts.append(gift)
             }
