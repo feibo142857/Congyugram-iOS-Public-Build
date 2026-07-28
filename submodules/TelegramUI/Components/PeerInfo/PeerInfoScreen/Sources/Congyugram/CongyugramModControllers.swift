@@ -918,7 +918,7 @@ private func congyugramGiftModController(context: AccountContext) -> ViewControl
         )
         |> map { complete, preview, resale in
             return congyugramMergeGiftAttributes([
-                complete ?? [],
+                complete.flatMap { $0 } ?? [],
                 preview ?? [],
                 resale ?? []
             ])
