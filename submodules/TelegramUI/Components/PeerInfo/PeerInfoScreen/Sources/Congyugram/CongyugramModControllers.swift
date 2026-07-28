@@ -186,6 +186,114 @@ private func congyugramPresentTextEditor(
     controller.present(alert, animated: true)
 }
 
+private func congyugramParseCollectibleDate(_ value: String) -> Date? {
+    let text = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !text.isEmpty else {
+        return nil
+    }
+    let formats = [
+        "yyyy 年 M 月 d 日",
+        "yyyy年M月d日",
+        "yyyy-MM-dd",
+        "yyyy-MM-dd HH:mm",
+        "yyyy/M/d HH:mm",
+        "yyyy年M月d日 HH:mm",
+        "M月d日 HH:mm",
+        "MM-dd HH:mm"
+    ]
+    for format in formats {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "zh_CN")
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.timeZone = TimeZone.current
+        formatter.dateFormat = format
+        if let date = formatter.date(from: text) {
+            if !format.contains("yyyy") {
+                var components = Calendar.current.dateComponents([.month, .day, .hour, .minute], from: date)
+                components.year = Calendar.current.component(.year, from: Date())
+                return Calendar.current.date(from: components) ?? date
+            }
+            return date
+        }
+    }
+    return nil
+}
+
+private func congyugramFormatCollectibleDate(_ date: Date) -> String {
+    let formatter = DateFormatter()
+    formatter.locale = Locale(identifier: "zh_CN")
+    formatter.calendar = Calendar(identifier: .gregorian)
+    formatter.timeZone = TimeZone.current
+    formatter.dateFormat = "yyyy 年 M 月 d 日"
+    return formatter.string(from: date)
+}
+
+private final class CongyugramCollectibleDatePickerTarget: NSObject, UITextFieldDelegate {
+    private let picker: UIDatePicker
+    private weak var textField: UITextField?
+    private var hasSelection: Bool
+
+    init(value: String) {
+        self.picker = UIDatePicker()
+        self.picker.datePickerMode = .date
+        self.picker.locale = Locale(identifier: "zh_CN")
+        self.picker.calendar = Calendar(identifier: .gregorian)
+        self.picker.maximumDate = Date()
+        self.hasSelection = !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        self.picker.date = congyugramParseCollectibleDate(value) ?? Date()
+        super.init()
+        if #available(iOS 13.4, *) {
+            self.picker.preferredDatePickerStyle = .wheels
+        }
+        self.picker.addTarget(self, action: #selector(self.dateChanged), for: .valueChanged)
+    }
+
+    func attach(to textField: UITextField) {
+        self.textField = textField
+        textField.delegate = self
+        textField.placeholder = "年        月        日"
+        textField.text = self.hasSelection ? congyugramFormatCollectibleDate(self.picker.date) : ""
+        textField.inputView = self.picker
+        textField.clearButtonMode = .never
+
+        let toolbar = UIToolbar()
+        toolbar.sizeToFit()
+        toolbar.items = [
+            UIBarButtonItem(barButtonSystemItem: .flexibleSpace, target: nil, action: nil),
+            UIBarButtonItem(title: "完成", style: .done, target: self, action: #selector(self.finishPicking))
+        ]
+        textField.inputAccessoryView = toolbar
+    }
+
+    var value: String {
+        if self.hasSelection {
+            return congyugramFormatCollectibleDate(self.picker.date)
+        } else {
+            return ""
+        }
+    }
+
+    func textFieldDidBeginEditing(_ textField: UITextField) {
+        if !self.hasSelection {
+            self.hasSelection = true
+            textField.text = congyugramFormatCollectibleDate(self.picker.date)
+        }
+    }
+
+    @objc private func dateChanged() {
+        self.hasSelection = true
+        self.textField?.text = congyugramFormatCollectibleDate(self.picker.date)
+    }
+
+    @objc private func finishPicking() {
+        if !self.hasSelection {
+            self.hasSelection = true
+            self.textField?.text = congyugramFormatCollectibleDate(self.picker.date)
+        }
+        self.textField?.resignFirstResponder()
+    }
+}
+
 private func congyugramPresentCollectibleEditor(
     controller: ViewController?,
     title: String,
@@ -201,15 +309,15 @@ private func congyugramPresentCollectibleEditor(
         textField.placeholder = "竞拍价格，例如 10.0"
         textField.keyboardType = .decimalPad
     }
+    let datePickerTarget = CongyugramCollectibleDatePickerTarget(value: value.collectibleTime)
     alert.addTextField { textField in
-        textField.text = value.collectibleTime
-        textField.placeholder = "获得时间，例如 7月25日 08:45"
+        datePickerTarget.attach(to: textField)
     }
     alert.addAction(UIAlertAction(title: "取消", style: .cancel))
-    alert.addAction(UIAlertAction(title: "保存", style: .default, handler: { [weak alert] _ in
+    alert.addAction(UIAlertAction(title: "保存", style: .default, handler: { [weak alert, datePickerTarget] _ in
         var updated = value
         updated.collectiblePrice = alert?.textFields?[0].text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        updated.collectibleTime = alert?.textFields?[1].text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        updated.collectibleTime = datePickerTarget.value
         completion(updated)
     }))
     controller.present(alert, animated: true)
@@ -666,6 +774,8 @@ private func congyugramMergeGiftAttributes(
     return result
 }
 
+private var congyugramGiftAttributesCache: [Int64: [StarGift.UniqueGift.Attribute]] = [:]
+
 private func congyugramBackdropCatalog() -> [StarGift.UniqueGift.Attribute] {
     let colors: [(String, Int32, UInt32, UInt32, UInt32, UInt32)] = [
         ("Black", -1001, 0x151515, 0x050505, 0x343434, 0xffffff),
@@ -696,29 +806,6 @@ private func congyugramBackdropCatalog() -> [StarGift.UniqueGift.Attribute] {
             rarity: .permille(20)
         )
     }
-}
-
-private func congyugramSelectGiftAttribute(
-    controller: ViewController,
-    title: String,
-    attributes: [StarGift.UniqueGift.Attribute],
-    completion: @escaping (StarGift.UniqueGift.Attribute) -> Void
-) {
-    let alert = UIAlertController(title: title, message: nil, preferredStyle: .actionSheet)
-    for attribute in attributes {
-        alert.addAction(UIAlertAction(title: congyugramGiftAttributeName(attribute), style: .default, handler: { _ in
-            completion(attribute)
-        }))
-    }
-    alert.addAction(UIAlertAction(title: "取消", style: .cancel))
-    alert.popoverPresentationController?.sourceView = controller.view
-    alert.popoverPresentationController?.sourceRect = CGRect(
-        x: controller.view.bounds.midX,
-        y: controller.view.bounds.maxY - 20.0,
-        width: 1.0,
-        height: 1.0
-    )
-    controller.present(alert, animated: true)
 }
 
 private func congyugramMakeLocalGift(
@@ -886,55 +973,24 @@ private func congyugramGiftModController(context: AccountContext) -> ViewControl
     let _ = context.engine.payments.keepStarGiftsUpdated().startStandalone()
 
     func showGiftBuilder(_ baseGift: StarGift.Gift, controller: ViewController) {
-        let progress = UIAlertController(title: "正在载入礼物属性", message: "请稍候…", preferredStyle: .alert)
-        controller.present(progress, animated: true)
-        let completeAttributes = context.engine.payments.getStarGiftUpgradeAttributes(giftId: baseGift.id)
-        |> last
-        |> timeout(12.0, queue: .mainQueue(), alternate: .single(nil))
-        let previewAttributes = context.engine.payments.starGiftUpgradePreview(giftId: baseGift.id)
-        |> map { preview in
-            return preview?.attributes
-        }
-        |> take(1)
-        |> timeout(12.0, queue: .mainQueue(), alternate: .single(nil))
-        let resaleContext = ResaleGiftsContext(account: context.account, giftId: baseGift.id, forCrafting: false)
-        let resaleAttributes = resaleContext.state
-        |> filter { state in
-            if case .ready = state.dataState {
-                return true
-            } else {
-                return false
-            }
-        }
-        |> map { state -> [StarGift.UniqueGift.Attribute]? in
-            return state.attributes
-        }
-        |> take(1)
-        |> timeout(12.0, queue: .mainQueue(), alternate: .single(nil))
-        let attributesSignal: Signal<[StarGift.UniqueGift.Attribute], NoError> = combineLatest(
-            completeAttributes,
-            previewAttributes,
-            resaleAttributes
-        )
-        |> map { complete, preview, resale in
-            return congyugramMergeGiftAttributes([
-                complete.flatMap { $0 } ?? [],
-                preview ?? [],
-                resale ?? []
-            ])
-        }
-        |> take(1)
-        let _ = (attributesSignal
-        |> deliverOnMainQueue).startStandalone(next: { attributes in
-            progress.dismiss(animated: true)
-            let models = attributes.filter {
-                if case .model = $0 {
+        func openAttributePicker(_ sourceAttributes: [StarGift.UniqueGift.Attribute]) {
+            var attributes = congyugramMergeGiftAttributes([sourceAttributes])
+            var backdrops = attributes.filter {
+                if case .backdrop = $0 {
                     return true
                 }
                 return false
             }
-            var backdrops = attributes.filter {
-                if case .backdrop = $0 {
+            for builtInBackdrop in congyugramBackdropCatalog() {
+                let name = congyugramGiftAttributeName(builtInBackdrop)
+                if !backdrops.contains(where: { congyugramGiftAttributeName($0).caseInsensitiveCompare(name) == .orderedSame }) {
+                    attributes.append(builtInBackdrop)
+                    backdrops.append(builtInBackdrop)
+                }
+            }
+
+            let models = attributes.filter {
+                if case .model = $0 {
                     return true
                 }
                 return false
@@ -945,16 +1001,10 @@ private func congyugramGiftModController(context: AccountContext) -> ViewControl
                 }
                 return false
             }
-            for builtInBackdrop in congyugramBackdropCatalog() {
-                let name = congyugramGiftAttributeName(builtInBackdrop)
-                if !backdrops.contains(where: { congyugramGiftAttributeName($0).caseInsensitiveCompare(name) == .orderedSame }) {
-                    backdrops.append(builtInBackdrop)
-                }
-            }
             guard !models.isEmpty, !backdrops.isEmpty, !patterns.isEmpty else {
                 let alert = UIAlertController(
                     title: "礼物属性加载失败",
-                    message: "没有取得完整的型号、背景和符号，请检查网络后重试。",
+                    message: "没有取得完整的型号、背景和符号，请返回后重试。",
                     preferredStyle: .alert
                 )
                 alert.addAction(UIAlertAction(title: "确定", style: .default))
@@ -962,33 +1012,74 @@ private func congyugramGiftModController(context: AccountContext) -> ViewControl
                 return
             }
 
-            congyugramSelectGiftAttribute(controller: controller, title: "选择型号", attributes: models, completion: { model in
-                congyugramSelectGiftAttribute(controller: controller, title: "选择背景", attributes: backdrops, completion: { backdrop in
-                    congyugramSelectGiftAttribute(controller: controller, title: "选择背景符号", attributes: patterns, completion: { pattern in
-                        congyugramPresentTextEditor(
-                            controller: controller,
-                            title: "自定义编号",
-                            value: "1234",
-                            placeholder: "请输入正整数",
-                            keyboardType: .numberPad,
-                            completion: { text in
-                                guard let number = Int32(text), number > 0 else {
-                                    return
-                                }
-                                let gift = congyugramMakeLocalGift(
-                                    peerId: context.account.peerId,
-                                    baseGift: baseGift,
-                                    model: model,
-                                    backdrop: backdrop,
-                                    pattern: pattern,
-                                    number: number
-                                )
-                                CongyugramModSettings.shared.addLocalGift(peerId: peerId, gift: gift)
+            let variantsController = context.sharedContext.makeGiftUpgradeVariantsSelectionScreen(
+                context: context,
+                gift: .generic(baseGift),
+                crafted: false,
+                attributes: attributes,
+                selectedAttributes: nil,
+                focusedAttribute: models.first,
+                selection: { selectedAttributes in
+                    guard let model = selectedAttributes.first(where: {
+                        if case .model = $0 {
+                            return true
+                        }
+                        return false
+                    }), let backdrop = selectedAttributes.first(where: {
+                        if case .backdrop = $0 {
+                            return true
+                        }
+                        return false
+                    }), let pattern = selectedAttributes.first(where: {
+                        if case .pattern = $0 {
+                            return true
+                        }
+                        return false
+                    }) else {
+                        return
+                    }
+                    congyugramPresentTextEditor(
+                        controller: controller,
+                        title: "自定义编号",
+                        value: "1234",
+                        placeholder: "请输入正整数",
+                        keyboardType: .numberPad,
+                        completion: { text in
+                            guard let number = Int32(text), number > 0 else {
+                                return
                             }
-                        )
-                    })
-                })
-            })
+                            let gift = congyugramMakeLocalGift(
+                                peerId: context.account.peerId,
+                                baseGift: baseGift,
+                                model: model,
+                                backdrop: backdrop,
+                                pattern: pattern,
+                                number: number
+                            )
+                            CongyugramModSettings.shared.addLocalGift(peerId: peerId, gift: gift)
+                        }
+                    )
+                }
+            )
+            controller.push(variantsController)
+        }
+
+        if let cachedAttributes = congyugramGiftAttributesCache[baseGift.id], !cachedAttributes.isEmpty {
+            openAttributePicker(cachedAttributes)
+            return
+        }
+
+        let attributesSignal: Signal<[StarGift.UniqueGift.Attribute], NoError> = context.engine.payments.getStarGiftUpgradeAttributes(giftId: baseGift.id)
+        |> filter { $0 != nil }
+        |> map { $0 ?? [] }
+        |> take(1)
+        |> timeout(8.0, queue: .mainQueue(), alternate: .single([]))
+        let _ = (attributesSignal
+        |> deliverOnMainQueue).startStandalone(next: { attributes in
+            if !attributes.isEmpty {
+                congyugramGiftAttributesCache[baseGift.id] = attributes
+            }
+            openAttributePicker(attributes)
         })
     }
 

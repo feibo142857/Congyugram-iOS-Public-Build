@@ -241,6 +241,9 @@ public final class CongyugramModSettings {
         }
 
         let formats = [
+            "yyyy 年 M 月 d 日",
+            "yyyy年M月d日",
+            "yyyy-MM-dd",
             "yyyy-MM-dd HH:mm",
             "yyyy/M/d HH:mm",
             "yyyy年M月d日 HH:mm",
@@ -333,11 +336,16 @@ public final class CongyugramModSettings {
 
     public func localGifts(peerId: Int64) -> [ProfileGiftsContext.State.StarGift] {
         return self.read { state in
-            return (state.accounts[self.accountKey(peerId)]?.gifts ?? []).map { gift in
-                if self.localGiftSlug(gift) != nil, case .unique = gift.gift, gift.transferStars == nil {
-                    return gift.withTransferStars(0)
+            let account = state.accounts[self.accountKey(peerId)]
+            return (account?.gifts ?? []).map { gift in
+                var result = gift
+                if let slug = self.localGiftSlug(result), slug == account?.wornGiftSlug, result.pinnedToTop {
+                    result = result.withPinnedToTop(false)
                 }
-                return gift
+                if self.localGiftSlug(result) != nil, case .unique = result.gift, result.transferStars == nil {
+                    result = result.withTransferStars(0)
+                }
+                return result
             }
         }
     }
@@ -371,9 +379,20 @@ public final class CongyugramModSettings {
     }
 
     public func updateLocalGiftPinned(peerId: Int64, reference: StarGiftReference, pinned: Bool) -> Bool {
-        return self.updateLocalGift(peerId: peerId, reference: reference) { gift in
-            gift.withPinnedToTop(pinned).withSavedToProfile(pinned ? true : gift.savedToProfile)
+        var found = false
+        self.update { state in
+            var account = state.accounts[self.accountKey(peerId)] ?? CongyugramAccountModState()
+            if let index = account.gifts.firstIndex(where: { $0.reference == reference }) {
+                let gift = account.gifts[index]
+                account.gifts[index] = gift.withPinnedToTop(pinned).withSavedToProfile(pinned ? true : gift.savedToProfile)
+                if pinned, let slug = self.localGiftSlug(gift), account.wornGiftSlug == slug {
+                    account.wornGiftSlug = nil
+                }
+                found = true
+            }
+            state.accounts[self.accountKey(peerId)] = account
         }
+        return found
     }
 
     @discardableResult
@@ -398,7 +417,10 @@ public final class CongyugramModSettings {
         self.update { state in
             var account = state.accounts[self.accountKey(peerId)] ?? CongyugramAccountModState()
             account.wornGiftSlug = slug
-            if slug != nil {
+            if let slug {
+                if let index = account.gifts.firstIndex(where: { self.localGiftSlug($0) == slug }) {
+                    account.gifts[index] = account.gifts[index].withPinnedToTop(false).withSavedToProfile(true)
+                }
                 account.localEmojiStatus = nil
             }
             state.accounts[self.accountKey(peerId)] = account

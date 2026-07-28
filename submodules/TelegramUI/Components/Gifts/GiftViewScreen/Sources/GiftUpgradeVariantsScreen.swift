@@ -33,6 +33,7 @@ private final class GiftUpgradeVariantsScreenComponent: Component {
     let attributes: [StarGift.UniqueGift.Attribute]
     let selectedAttributes: [StarGift.UniqueGift.Attribute]?
     let focusedAttribute: StarGift.UniqueGift.Attribute?
+    let selection: (([StarGift.UniqueGift.Attribute]) -> Void)?
     
     init(
         context: AccountContext,
@@ -40,7 +41,8 @@ private final class GiftUpgradeVariantsScreenComponent: Component {
         crafted: Bool,
         attributes: [StarGift.UniqueGift.Attribute],
         selectedAttributes: [StarGift.UniqueGift.Attribute]?,
-        focusedAttribute: StarGift.UniqueGift.Attribute?
+        focusedAttribute: StarGift.UniqueGift.Attribute?,
+        selection: (([StarGift.UniqueGift.Attribute]) -> Void)?
     ) {
         self.context = context
         self.gift = gift
@@ -48,6 +50,7 @@ private final class GiftUpgradeVariantsScreenComponent: Component {
         self.attributes = attributes
         self.selectedAttributes = selectedAttributes
         self.focusedAttribute = focusedAttribute
+        self.selection = selection
     }
     
     static func ==(lhs: GiftUpgradeVariantsScreenComponent, rhs: GiftUpgradeVariantsScreenComponent) -> Bool {
@@ -602,6 +605,9 @@ private final class GiftUpgradeVariantsScreenComponent: Component {
                 self.isUpdating = false
             }
             
+            if self.component == nil, component.selection != nil {
+                self.isPlaying = false
+            }
             self.updateTimer()
             
             let environment = environment[ViewControllerComponentContainer.Environment.self].value
@@ -1103,6 +1109,18 @@ private final class GiftUpgradeVariantsScreenComponent: Component {
                 transition.setFrame(view: closeButtonView, frame: closeButtonFrame)
             }
     
+            let playbackButtonContent: AnyComponentWithIdentity<Empty>
+            if component.selection != nil {
+                playbackButtonContent = AnyComponentWithIdentity(id: "confirm", component: AnyComponent(
+                    MultilineTextComponent(
+                        text: .plain(NSAttributedString(string: "完成", font: Font.semibold(16.0), textColor: .white))
+                    )
+                ))
+            } else {
+                playbackButtonContent = AnyComponentWithIdentity(id: "content", component: AnyComponent(
+                    PlayButtonComponent(isPlay: !self.isPlaying, title: !self.isPlaying && self.showRandomizeTip ? environment.strings.Gift_Variants_Randomize : nil)
+                ))
+            }
             let playbackButtonSize = self.playbackButton.update(
                 transition: transition,
                 component: AnyComponent(GlassBarButtonComponent(
@@ -1110,11 +1128,22 @@ private final class GiftUpgradeVariantsScreenComponent: Component {
                     backgroundColor: buttonColor,
                     isDark: false,
                     state: .tintedGlass,
-                    component: AnyComponentWithIdentity(id: "content", component: AnyComponent(
-                        PlayButtonComponent(isPlay: !self.isPlaying, title: !self.isPlaying && self.showRandomizeTip ? environment.strings.Gift_Variants_Randomize : nil)
-                    )),
+                    component: playbackButtonContent,
                     action: { [weak self] _ in
                         guard let self else {
+                            return
+                        }
+                        if let selection = component.selection {
+                            let previewModels = self.displayCraftableModels ? self.previewCraftableModels : self.previewPrimaryModels
+                            guard let model = self.selectedModel ?? previewModels.first ?? self.previewPrimaryModels.first ?? self.previewCraftableModels.first,
+                                  let backdrop = self.selectedBackdrop ?? self.previewBackdrops.first,
+                                  let symbol = self.selectedSymbol ?? self.previewSymbols.first,
+                                  let controller = self.environment?.controller() else {
+                                return
+                            }
+                            controller.dismiss(completion: {
+                                selection([model, backdrop, symbol])
+                            })
                             return
                         }
                         self.isPlaying = !self.isPlaying
@@ -1242,7 +1271,8 @@ public class GiftUpgradeVariantsScreen: ViewControllerComponentContainer {
         crafted: Bool = false,
         attributes: [StarGift.UniqueGift.Attribute],
         selectedAttributes: [StarGift.UniqueGift.Attribute]?,
-        focusedAttribute: StarGift.UniqueGift.Attribute?
+        focusedAttribute: StarGift.UniqueGift.Attribute?,
+        selection: (([StarGift.UniqueGift.Attribute]) -> Void)? = nil
     ) {
         self.context = context
         
@@ -1252,7 +1282,8 @@ public class GiftUpgradeVariantsScreen: ViewControllerComponentContainer {
             crafted: crafted,
             attributes: attributes,
             selectedAttributes: selectedAttributes,
-            focusedAttribute: focusedAttribute
+            focusedAttribute: focusedAttribute,
+            selection: selection
         ), navigationBarAppearance: .none, theme: .default)
         
         self.statusBar.statusBarStyle = .Ignore
